@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "t-deck-dev",
+			"path": "."
+		},
+		{
+			"name": "thermostat",
+			"path": "../../../../Desktop/thermostat"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.tpp": "cpp"
+		}
+	}
+}
