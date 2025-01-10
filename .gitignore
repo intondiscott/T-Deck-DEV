@@ -3,4 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+<<<<<<< HEAD
 src/credentials.c
+=======
+>>>>>>> f7e4022 (Updated to LVGL 9.2.2)
