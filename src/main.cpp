@@ -1,174 +1,425 @@
-#include <LGFX_T-Deck.h>
-#include <T-Deck_Init_Disp.h>
-#include <../lib/lvgl/lvgl.h>
-#define TOUCH_MODULES_GT911
-#include "TouchLib.h"
-LGFX lcd;
-lv_indev_t *touch_indev = NULL;
-bool touchDected = false;
-TouchLib *touch = NULL;
+#include <Arduino.h>
+#include <TFT_eSPI.h>
+#include <lvgl.h>
+#include <WiFi.h>
+#include "TouchDrvGT911.hpp"
+#include <ArduinoJson.h>
+#include "utilities.h"
+#include <HTTPClient.h>
+#include "credentials.c"
 
-uint8_t touchAddress = GT911_SLAVE_ADDRESS1;
-void createUI();
-void setupLVGL();
-static void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p);
-static void eventHandle(lv_event_t *event);
-static bool getTouch(int16_t &x, int16_t &y);
-static void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data);
+TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
+TFT_eSPI tft;
+TouchDrvGT911 touch;
+unsigned long lastTickMillis = 0;
+// LilyGo  T-Deck  control backlight chip has 16 levels of adjustment range
+// The adjustable range is 0~15, 0 is the minimum brightness, 15 is the maximum brightness
 
-void setup()
+struct Weather
 {
+  float temperature = 255.372; // kelvin temp
+  int humidity = 0;
+  float wind_speed = 0.0;
+  char icon[5];
+};
 
-  Serial.begin(115200);
-  pinMode(BOARD_TOUCH_INT, INPUT);
-  Serial.println("Starting monitor");
-  Init_Display();
-  String greet = "Hello, Scotty";
-  lcd.init();
-  lcd.setRotation(1);
-  lcd.fillScreen(TFT_BROWN);
-
-  Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
-  delay(20);
-
-  touch = new TouchLib(Wire, BOARD_I2C_SDA, BOARD_I2C_SCL, touchAddress);
-  touch->init();
-  bool ret = 0;
-  Wire.beginTransmission(touchAddress);
-  ret = Wire.endTransmission() == 0;
-  touchDected = ret;
-  setupLVGL();
-  createUI();
-}
-
-void loop()
+Weather *weather = new Weather;
+char weather_buffer[7];
+struct
 {
-  lv_task_handler();
-  delay(5);
-}
-void setupLVGL()
+  TFT_eSPI tft;
+
+  lv_obj_t
+      *main_screen,
+      *nav_screen,
+      *battery_label,
+      *datetime_label,
+      *bat_bar,
+      *bat_img,
+      *low_bat_img,
+      *button_text,
+      *charging_img,
+      *icons[6],
+      *connection_status,
+      *weather_conditions,
+      *temperature_label,
+      *wind_speed_label,
+      *humidity_label;
+  char bat[4];
+} static TdeckDisplayUI;
+
+void setBrightness(uint8_t value)
 {
-  static lv_disp_draw_buf_t draw_buf;
-
-#define LVGL_BUFFER_SIZE (TFT_WIDTH * TFT_HEIGHT / 10)
-  static lv_color_t buf[LVGL_BUFFER_SIZE];
-
-  lv_init();
-
-  lv_disp_draw_buf_init(&draw_buf, buf, NULL, LVGL_BUFFER_SIZE);
-
-  /*Initialize the display*/
-  static lv_disp_drv_t disp_drv;
-  lv_disp_drv_init(&disp_drv);
-
-  /*Change the following line to your display resolution*/
-  disp_drv.hor_res = TFT_HEIGHT;
-  disp_drv.ver_res = TFT_WIDTH;
-  disp_drv.flush_cb = disp_flush;
-  disp_drv.draw_buf = &draw_buf;
-  disp_drv.full_refresh = 1;
-
-  lv_disp_drv_register(&disp_drv);
-
-  /*Initialize the  input device driver*/
-  /*Register a touchscreen input device*/
-  if (touchDected)
+  static uint8_t level = 0;
+  static uint8_t steps = 16;
+  if (value == 0)
   {
-    static lv_indev_drv_t indev_touchpad;
-    lv_indev_drv_init(&indev_touchpad);
-    indev_touchpad.type = LV_INDEV_TYPE_POINTER;
-    indev_touchpad.read_cb = touchpad_read;
-    touch_indev = lv_indev_drv_register(&indev_touchpad);
+    digitalWrite(BOARD_BL_PIN, 0);
+    delay(3);
+    level = 0;
+    return;
   }
+  if (level == 0)
+  {
+    digitalWrite(BOARD_BL_PIN, 1);
+    level = steps;
+    delayMicroseconds(30);
+  }
+  int from = steps - level;
+  int to = steps - value;
+  int num = (steps + to - from) % steps;
+  for (int i = 0; i < num; i++)
+  {
+    digitalWrite(BOARD_BL_PIN, 0);
+    digitalWrite(BOARD_BL_PIN, 1);
+  }
+  level = value;
 }
 
-/*Read the touchpad*/
-static void touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data)
-{
-  data->state = getTouch(data->point.x, data->point.y) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-}
-
-static void disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p)
+// !!! LVGL !!!
+// !!! LVGL !!!
+// !!! LVGL !!!
+void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
 {
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
 
-  lcd.startWrite();
-  lcd.setAddrWindow(area->x1, area->y1, w, h);
-  lcd.pushPixels((uint16_t *)&color_p->full, w * h, true);
-  lcd.endWrite();
+  TdeckDisplayUI.tft.pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
+  lv_draw_sw_rgb565_swap(color_p, w * h);
+
   lv_disp_flush_ready(disp);
 }
 
-static bool getTouch(int16_t &x, int16_t &y)
+int16_t x[5], y[5];
+
+/*Read the touchpad*/
+void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
 {
-  uint8_t rotation = lcd.getRotation();
-  if (!touch->read())
+  data->state = LV_INDEV_STATE_REL;
+
+  // data->state = getTouch(data->point.x, data->point.y) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+  if (touch.isPressed())
   {
-    return false;
+    Serial.println("Pressed!");
+    uint8_t touched = touch.getPoint(x, y, touch.getSupportTouchPoint());
+    if (touched > 0)
+    {
+      data->state = LV_INDEV_STATE_PR;
+      data->point.x = x[0];
+      data->point.y = y[0];
+
+      Serial.print(millis());
+      Serial.print("ms ");
+      for (int i = 0; i < touched; ++i)
+      {
+        Serial.print("X[");
+        Serial.print(i);
+        Serial.print("]:");
+        Serial.print(x[i]);
+        Serial.print(" ");
+        Serial.print(" Y[");
+        Serial.print(i);
+        Serial.print("]:");
+        Serial.print(y[i]);
+        Serial.print(" ");
+      }
+      Serial.println();
+    }
   }
-  TP_Point t = touch->getPoint(0);
-  switch (rotation)
-  {
-  case 1:
-    x = t.y;
-    y = lcd.height() - t.x;
-    break;
-  case 2:
-    x = lcd.width() - t.x;
-    y = lcd.height() - t.y;
-    break;
-  case 3:
-    x = lcd.width() - t.y;
-    y = t.x;
-    break;
-  case 0:
-  default:
-    x = t.x;
-    y = t.y;
-  }
-  Serial.printf("R:%d X:%d Y:%d\n", rotation, x, y);
-  return true;
 }
 
-void createUI()
+void screen_update()
 {
-  static lv_style_t style1;
+  // make time struct
 
-  lv_style_init(&style1);
-  lv_obj_t *btn = lv_btn_create(lv_scr_act());
-  lv_obj_t *label = lv_label_create(btn);
+  uint8_t battery_percentage = 100;
 
-  lv_obj_set_x(btn, 100);
-  lv_obj_set_y(btn, 100);
+  // snprintf(TdeckDisplayUI.bat, sizeof(TdeckDisplayUI.bat), "%d", battery_percentage);
+  // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
+  // snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
+  // lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
+  // lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
+  // snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
+  // lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
+  // lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
+  // lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
+  // M5.Rtc.GetTime(&TimeStruct);
+  /*lv_label_set_text_fmt(
+      TdeckDisplayUI.datetime_label, "%02d : %02d : %02d %s",
+      TimeStruct.Hours > 12 ? TimeStruct.Hours - 12 : TimeStruct.Hours,
+      TimeStruct.Minutes,
+      TimeStruct.Seconds,
+      TimeStruct.Hours >= 12 ? "PM" : "AM");
+  if (M5.Axp.GetAPSVoltage() > 4.7)
+  {
+    LV_IMAGE_DECLARE(charging);
+    lv_image_set_src(TdeckDisplayUI.bat_img, &charging);
+  }
+  else
+  {
+    switch (battery_percentage)
+    {
+    case 80 ... 100:
+      LV_IMAGE_DECLARE(full_battery);
+      lv_image_set_src(TdeckDisplayUI.bat_img, &full_battery);
+      break;
+    case 40 ... 79:
+      LV_IMAGE_DECLARE(bat_two_bars);
+      lv_image_set_src(TdeckDisplayUI.bat_img, &bat_two_bars);
+      break;
+    case 15 ... 39:
+      LV_IMAGE_DECLARE(low_bat);
+      lv_image_set_src(TdeckDisplayUI.bat_img, &low_bat);
+      break;
+    case 0 ... 14:
+      LV_IMAGE_DECLARE(critical_low_bat);
+      lv_image_set_src(TdeckDisplayUI.bat_img, &critical_low_bat);
+      break;
+    default:
+      break;
+    }
+  }*/
+}
+void sensorsTask(void *pvParams)
+{
+  // lv_label_set_text(TdeckDisplayUI.wifi_list,"wifi");
+  while (1)
+  {
 
-  lv_style_set_bg_color(&style1, lv_color_make(128, 14, 118));
-  lv_obj_add_event_cb(btn, eventHandle, LV_EVENT_ALL, NULL);
-  lv_obj_add_style(btn, &style1, 0);
-  lv_label_set_text(label, "My button");
+    while (1)
+    {
+
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        HTTPClient http2, http3;
+        float x, y, z;
+        String update = "\"device_status\":\"ONLINE\",";
+        String battery = "\"pin1\":\"" + (String)TdeckDisplayUI.bat + "\",";
+        // String charging = "\"pin2\":\"" + (String)M5.Axp.GetAPSVoltage() + "\",";
+        // String chip_temp = "\"pin3\":\"" + (String)M5.Axp.GetTempInAXP192() + "\"";
+
+        http2.begin("http://192.168.0.114:8080/api/v1/devices/2");
+        http3.begin("http://192.168.0.223:8080/api/v1/devices/2");
+        http2.addHeader("Content-type", "application/json");
+        http3.addHeader("Content-type", "application/json");
+        http2.PUT(
+            "{" +
+            update +
+            battery +
+            // charging +
+            // chip_temp +
+            "}");
+        http3.PUT(
+            "{" +
+            update +
+            battery +
+            // charging +
+            // chip_temp +
+            "}");
+
+        http2.end();
+        http3.end();
+      }
+      else
+      {
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+        Serial.print("Connecting to WiFi ..");
+        while (WiFi.status() != WL_CONNECTED)
+        {
+          Serial.print('.');
+          delay(1000);
+        }
+        Serial.println(WiFi.localIP());
+      }
+      vTaskDelay(2);
+    }
+  }
+}
+void drawUI()
+{
+
+  TdeckDisplayUI.main_screen = lv_obj_create(lv_screen_active());
+  TdeckDisplayUI.nav_screen = lv_obj_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.battery_label = lv_label_create(TdeckDisplayUI.nav_screen);
+  TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
+  TdeckDisplayUI.connection_status = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.bat_img = lv_image_create(TdeckDisplayUI.nav_screen);
+  TdeckDisplayUI.weather_conditions = lv_image_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.bat_bar = lv_label_create(TdeckDisplayUI.main_screen);
+
+  lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
+
+  lv_obj_center(TdeckDisplayUI.connection_status);
+
+  lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
+  lv_obj_center(TdeckDisplayUI.main_screen);
+  lv_obj_set_flex_flow(TdeckDisplayUI.main_screen, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_size(TdeckDisplayUI.nav_screen, 320, 30);
+  lv_obj_align(TdeckDisplayUI.battery_label, LV_ALIGN_RIGHT_MID, -60, 0);
+  lv_obj_align(TdeckDisplayUI.datetime_label, LV_ALIGN_LEFT_MID, 0, 0);
+
+  lv_obj_set_style_pad_all(TdeckDisplayUI.nav_screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(TdeckDisplayUI.main_screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.nav_screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(TdeckDisplayUI.main_screen, lv_color_hex(0x98a3a2), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(TdeckDisplayUI.nav_screen, lv_color_hex(0x948d8d), LV_PART_MAIN);
+
+  lv_obj_set_style_text_color(TdeckDisplayUI.nav_screen, lv_color_hex(0x000000), LV_PART_MAIN);
+}
+void wifiTask(void *pvParams)
+{
+
+  while (1)
+  {
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      HTTPClient http1;
+
+      String server_path1 = "https://api.openweathermap.org/data/2.5/weather?lat=41.3165&lon=-73.0932&appid=";
+
+      http1.begin(server_path1 + MY_SECRET_API_KEY);
+
+      int httpCode = http1.GET();
+
+      if (httpCode > 0)
+      {
+        String payload = http1.getString();
+
+        JsonDocument doc;
+        deserializeJson(doc, payload);
+        weather->temperature = doc["main"]["temp"];
+        weather->humidity = doc["main"]["humidity"];
+        weather->wind_speed = doc["wind"]["speed"];
+
+        Serial.println(payload);
+      }
+      else
+      {
+        Serial.println(httpCode);
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+        Serial.print("Connecting to WiFi ..");
+        while (WiFi.status() != WL_CONNECTED)
+        {
+          Serial.print('.');
+          delay(1000);
+        }
+        Serial.println(WiFi.localIP());
+      }
+      http1.end();
+    }
+    vTaskDelay(10000);
+  }
 }
 
-static void eventHandle(lv_event_t *event)
+void setupLVGL()
 {
-  lv_event_code_t code = lv_event_get_code(event);
-  lv_obj_t *obj = lv_event_get_target(event);
-  // Serial.printf("something clicked at");
-  if (code == LV_EVENT_CLICKED)
-  {
 
-    lv_obj_t *label = lv_obj_get_child(obj, 0);
-    lv_label_set_text(label, "Clicked!!!");
-  }
-  if (code == LV_EVENT_LONG_PRESSED)
-  {
+  lv_init();
 
-    lv_obj_t *label = lv_obj_get_child(obj, 0);
-    lv_label_set_text(label, "Clicked Long!!!");
-  }
-  if (code == LV_EVENT_LONG_PRESSED_REPEAT)
-  {
+  static lv_color_t buf[320 * 10];
+  lv_display_t *display = lv_display_create(320, 240);
+/*Declare a buffer for 1/10 screen size*/
+#define BYTE_PER_PIXEL (LV_COLOR_FORMAT_GET_SIZE(LV_COLOR_FORMAT_RGB565)) /*will be 2 for RGB565 */
+  static uint8_t buf1[320 * 240 / 10 * BYTE_PER_PIXEL];
 
-    lv_obj_t *label = lv_obj_get_child(obj, 0);
-    lv_label_set_text(label, "My Button!!!");
+  lv_display_set_buffers(display, buf1, NULL, sizeof(buf1), LV_DISPLAY_RENDER_MODE_PARTIAL); /*Initialize the display buffer.*/
+  lv_display_set_flush_cb(display, my_disp_flush);
+
+  lv_indev_t *indev = lv_indev_create();           /*Create an input device*/
+  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); /*Touch pad is a pointer-like device*/
+  lv_indev_set_read_cb(indev, my_touch_read);
+
+  drawUI();
+  while (1)
+  {
+    // screen_update();
+    u_int8_t tickPeriod = millis() - lastTickMillis;
+    lv_tick_inc(tickPeriod);
+    lastTickMillis = millis();
+    lv_timer_handler();
+    vTaskDelay(1);
   }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+
+  Serial.println("lvgl example");
+
+  //! The board peripheral power control pin needs to be set to HIGH when using the peripheral
+  pinMode(BOARD_POWERON, OUTPUT);
+  digitalWrite(BOARD_POWERON, HIGH);
+
+  //! Set CS on all SPI buses to high level during initialization
+  pinMode(BOARD_SDCARD_CS, OUTPUT);
+  pinMode(RADIO_CS_PIN, OUTPUT);
+  pinMode(BOARD_TFT_CS, OUTPUT);
+
+  digitalWrite(BOARD_SDCARD_CS, HIGH);
+  digitalWrite(RADIO_CS_PIN, HIGH);
+  digitalWrite(BOARD_TFT_CS, HIGH);
+
+  pinMode(BOARD_SPI_MISO, INPUT_PULLUP);
+  SPI.begin(BOARD_SPI_SCK, BOARD_SPI_MISO, BOARD_SPI_MOSI); // SD
+
+  pinMode(BOARD_BOOT_PIN, INPUT_PULLUP);
+  pinMode(BOARD_TBOX_G02, INPUT_PULLUP);
+  pinMode(BOARD_TBOX_G01, INPUT_PULLUP);
+  pinMode(BOARD_TBOX_G04, INPUT_PULLUP);
+  pinMode(BOARD_TBOX_G03, INPUT_PULLUP);
+
+  Serial.print("Init display id:");
+  Serial.println(USER_SETUP_ID);
+
+  tft.begin();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLUE);
+
+  // Set touch int input
+  pinMode(BOARD_TOUCH_INT, INPUT);
+  delay(20);
+
+  Wire.begin(BOARD_I2C_SDA, BOARD_I2C_SCL);
+
+  touch.setPins(-1, BOARD_TOUCH_INT);
+  if (!touch.begin(Wire, GT911_SLAVE_ADDRESS_L))
+  {
+    while (1)
+    {
+      Serial.println("Failed to find GT911 - check your wiring!");
+      delay(1000);
+    }
+  }
+
+  Serial.println("Init GT911 Sensor success!");
+
+  // Set touch max xy
+  touch.setMaxCoordinates(320, 240);
+
+  // Set swap xy
+  touch.setSwapXY(true);
+
+  // Set mirror xy
+  touch.setMirrorXY(false, true);
+  setupLVGL();
+
+  // xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
+  // xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
+  //  xTaskCreatePinnedToCore(sensorsTask, "sensorsTask", 1024 * 6, NULL, 1, &sensorTaskHandler, 1);
+}
+
+void loop()
+{
+  u_int8_t tickPeriod = millis() - lastTickMillis;
+  lv_tick_inc(tickPeriod);
+  lastTickMillis = millis();
+  lv_timer_handler();
+  vTaskDelay(1);
 }
