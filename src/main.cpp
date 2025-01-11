@@ -7,9 +7,15 @@
 #include "utilities.h"
 #include <HTTPClient.h>
 #include "credentials.c"
-
+#include "mouse_pointer.h"
+#include <TDECK_PINS.h>
+#include <critical_low_bat.h>
+#include <charging.h>
+#include <full_battery.h>
+#include <bat_two_bars.h>
+#include <low_bat.h>
 TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
-TFT_eSPI tft;
+
 TouchDrvGT911 touch;
 unsigned long lastTickMillis = 0;
 // LilyGo  T-Deck  control backlight chip has 16 levels of adjustment range
@@ -45,7 +51,7 @@ struct
       *temperature_label,
       *wind_speed_label,
       *humidity_label;
-  char bat[4];
+  char bat[6];
 } static TdeckDisplayUI;
 
 void setBrightness(uint8_t value)
@@ -83,9 +89,9 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
 {
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
-
-  TdeckDisplayUI.tft.pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
   lv_draw_sw_rgb565_swap(color_p, w * h);
+  TdeckDisplayUI.tft.pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
+  // lv_draw_sw_rgb565_swap(color_p, w * h);
 
   lv_disp_flush_ready(disp);
 }
@@ -132,25 +138,25 @@ void screen_update()
 {
   // make time struct
 
-  uint8_t battery_percentage = 100;
+  uint32_t battery_percentage = (analogRead(BOARD_BAT_ADC) * 4.6) * 8 / 1024;
 
-  // snprintf(TdeckDisplayUI.bat, sizeof(TdeckDisplayUI.bat), "%d", battery_percentage);
-  // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
-  // snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
-  // lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
-  // lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
-  // snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
-  // lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
-  // lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
-  // lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
+  snprintf(TdeckDisplayUI.bat, sizeof(TdeckDisplayUI.bat), "%d", battery_percentage);
+  lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
+  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
+  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
+  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
+  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
+  lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
+  lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
+  lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
   // M5.Rtc.GetTime(&TimeStruct);
   /*lv_label_set_text_fmt(
       TdeckDisplayUI.datetime_label, "%02d : %02d : %02d %s",
       TimeStruct.Hours > 12 ? TimeStruct.Hours - 12 : TimeStruct.Hours,
       TimeStruct.Minutes,
       TimeStruct.Seconds,
-      TimeStruct.Hours >= 12 ? "PM" : "AM");
-  if (M5.Axp.GetAPSVoltage() > 4.7)
+      TimeStruct.Hours >= 12 ? "PM" : "AM");*/
+  if (analogRead(BOARD_BAT_ADC) > 2700)
   {
     LV_IMAGE_DECLARE(charging);
     lv_image_set_src(TdeckDisplayUI.bat_img, &charging);
@@ -178,7 +184,7 @@ void screen_update()
     default:
       break;
     }
-  }*/
+  }
 }
 void sensorsTask(void *pvParams)
 {
@@ -317,7 +323,7 @@ void wifiTask(void *pvParams)
   }
 }
 
-void setupLVGL()
+void setupLVGL(void *pvParams)
 {
 
   lv_init();
@@ -334,11 +340,16 @@ void setupLVGL()
   lv_indev_t *indev = lv_indev_create();           /*Create an input device*/
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); /*Touch pad is a pointer-like device*/
   lv_indev_set_read_cb(indev, my_touch_read);
+  LV_IMAGE_DECLARE(mouse_pointer);
+  lv_obj_t *mouse_cursor = lv_img_create(lv_screen_active());
+
+  // lv_image_set_src(mouse_cursor, &mouse_pointer);
+  // lv_indev_set_cursor(indev, mouse_cursor);
 
   drawUI();
   while (1)
   {
-    // screen_update();
+    screen_update();
     u_int8_t tickPeriod = millis() - lastTickMillis;
     lv_tick_inc(tickPeriod);
     lastTickMillis = millis();
@@ -375,12 +386,15 @@ void setup()
   pinMode(BOARD_TBOX_G04, INPUT_PULLUP);
   pinMode(BOARD_TBOX_G03, INPUT_PULLUP);
 
+  pinMode(BOARD_BAT_ADC, INPUT);
+  adcAttachPin(BOARD_BAT_ADC);
+
   Serial.print("Init display id:");
   Serial.println(USER_SETUP_ID);
 
-  tft.begin();
-  tft.setRotation(1);
-  tft.fillScreen(TFT_BLUE);
+  TdeckDisplayUI.tft.begin();
+  TdeckDisplayUI.tft.setRotation(1);
+  TdeckDisplayUI.tft.fillScreen(TFT_BLACK);
 
   // Set touch int input
   pinMode(BOARD_TOUCH_INT, INPUT);
@@ -408,18 +422,14 @@ void setup()
 
   // Set mirror xy
   touch.setMirrorXY(false, true);
-  setupLVGL();
+  pinMode(BOARD_BL_PIN, OUTPUT);
+  setBrightness(16);
 
-  // xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
-  // xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
-  //  xTaskCreatePinnedToCore(sensorsTask, "sensorsTask", 1024 * 6, NULL, 1, &sensorTaskHandler, 1);
+  xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
+  xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
+  xTaskCreatePinnedToCore(sensorsTask, "sensorsTask", 1024 * 6, NULL, 1, &sensorTaskHandler, 1);
 }
 
 void loop()
 {
-  u_int8_t tickPeriod = millis() - lastTickMillis;
-  lv_tick_inc(tickPeriod);
-  lastTickMillis = millis();
-  lv_timer_handler();
-  vTaskDelay(1);
 }
