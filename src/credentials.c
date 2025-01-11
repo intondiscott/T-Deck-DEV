@@ -1,3 +1,0 @@
-***REMOVED***
-***REMOVED***
-#define MY_SECRET_PASSWORD  ""
