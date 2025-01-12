@@ -20,6 +20,7 @@ void keyboard_init()
 char keyboard_get_key()
 {
   // Read key value from esp32c3
+
   Wire.requestFrom(TDECK_KEYBOARD_ADDR, 1);
   if (Wire.available() > 0)
   {
