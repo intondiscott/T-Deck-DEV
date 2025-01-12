@@ -14,13 +14,26 @@
 #include <full_battery.h>
 #include <bat_two_bars.h>
 #include <low_bat.h>
+#include <wallpaper.h>
+#include <keyboard.h>
+#include <book.h>
+#include <internet.h>
+#include <no_wifi.h>
+#include <setting.h>
+#include <telephone.h>
 TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
+int direction_count_up = 0;
+int direction_count_down = 0;
+int direction_count_left = 0;
+int direction_count_right = 0;
+int pointer_speed = 5;
 
+int UP, DOWN, LEFT, RIGHT, CLICKED;
 TouchDrvGT911 touch;
 unsigned long lastTickMillis = 0;
 // LilyGo  T-Deck  control backlight chip has 16 levels of adjustment range
 // The adjustable range is 0~15, 0 is the minimum brightness, 15 is the maximum brightness
-
+int trackball_val = 0;
 struct Weather
 {
   float temperature = 255.372; // kelvin temp
@@ -42,10 +55,11 @@ struct
       *datetime_label,
       *bat_bar,
       *bat_img,
+      *wallpaper,
       *low_bat_img,
       *button_text,
       *charging_img,
-      *icons[6],
+      *icons[10],
       *connection_status,
       *weather_conditions,
       *temperature_label,
@@ -96,14 +110,69 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
   lv_disp_flush_ready(disp);
 }
 
-int16_t x[5], y[5];
+int16_t x[320 / 2], y[240 / 2];
 
 /*Read the touchpad*/
 void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
 {
+
   data->state = LV_INDEV_STATE_REL;
 
-  // data->state = getTouch(data->point.x, data->point.y) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+  UP = digitalRead(TDECK_TRACKBALL_UP);
+  DOWN = digitalRead(TDECK_TRACKBALL_DOWN);
+  LEFT = digitalRead(TDECK_TRACKBALL_LEFT);
+  RIGHT = digitalRead(TDECK_TRACKBALL_RIGHT);
+  CLICKED = digitalRead(TDECK_TRACKBALL_CLICK);
+
+  if (DOWN == 1)
+  {
+    direction_count_down = 1;
+  }
+
+  if (DOWN == 0 && direction_count_down == 1)
+  {
+    data->point.y += pointer_speed;
+    direction_count_down = 0;
+    Serial.printf("direction down: %dpx\n", pointer_speed);
+    return;
+  }
+  if (UP == 1)
+  {
+    direction_count_up = 1;
+  }
+  if (UP == 0 && direction_count_up == 1)
+  {
+    data->point.y -= pointer_speed;
+    direction_count_up = 0;
+    Serial.printf("direction up: %dpx\n", pointer_speed);
+    return;
+  }
+  if (LEFT == 1)
+  {
+    direction_count_left = 1;
+  }
+  if (LEFT == 0 && direction_count_left == 1)
+  {
+    data->point.x -= pointer_speed;
+    direction_count_left = 0;
+    Serial.printf("direction left: %dpx\n", pointer_speed);
+    return;
+  }
+  if (RIGHT == 1)
+  {
+    direction_count_right = 1;
+  }
+  if (RIGHT == 0 && direction_count_right == 1)
+  {
+    data->point.x += pointer_speed;
+    direction_count_right = 0;
+    Serial.printf("direction right: %dpx\n", pointer_speed);
+    return;
+  }
+  if (CLICKED == 0)
+  {
+    data->state = LV_INDEV_STATE_PR;
+  }
   if (touch.isPressed())
   {
     Serial.println("Pressed!");
@@ -141,15 +210,25 @@ void screen_update()
   uint32_t battery_percentage = (analogRead(BOARD_BAT_ADC) * 4.6) * 8 / 1024;
 
   snprintf(TdeckDisplayUI.bat, sizeof(TdeckDisplayUI.bat), "%d", battery_percentage);
-  lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
-  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
-  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
-  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
-  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
-  lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    LV_IMAGE_DECLARE(internet);
+    lv_image_set_src(TdeckDisplayUI.connection_status, &internet);
+  }
+  else
+  {
+    LV_IMAGE_DECLARE(no_wifi);
+    lv_image_set_src(TdeckDisplayUI.connection_status, &no_wifi);
+  }
+  // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
+  //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
+  //  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
+  //  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
+  //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
+  //  lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
   lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
-  lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
-  // M5.Rtc.GetTime(&TimeStruct);
+  // lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
+  //  M5.Rtc.GetTime(&TimeStruct);
   /*lv_label_set_text_fmt(
       TdeckDisplayUI.datetime_label, "%02d : %02d : %02d %s",
       TimeStruct.Hours > 12 ? TimeStruct.Hours - 12 : TimeStruct.Hours,
@@ -244,29 +323,45 @@ void sensorsTask(void *pvParams)
 }
 void drawUI()
 {
-
-  TdeckDisplayUI.main_screen = lv_obj_create(lv_screen_active());
+  LV_IMAGE_DECLARE(wallpaper);
+  LV_IMAGE_DECLARE(book);
+  LV_IMAGE_DECLARE(setting);
+  LV_IMAGE_DECLARE(telephone);
+  static lv_style_t button_click;
+  lv_style_init(&button_click);
+  lv_style_set_image_recolor_opa(&button_click, LV_OPA_30);
+  TdeckDisplayUI.main_screen = lv_image_create(lv_screen_active());
   TdeckDisplayUI.nav_screen = lv_obj_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.battery_label = lv_label_create(TdeckDisplayUI.nav_screen);
-  TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
-  TdeckDisplayUI.connection_status = lv_label_create(TdeckDisplayUI.main_screen);
-  TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.main_screen);
-  TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
-  TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
+  // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
+  TdeckDisplayUI.connection_status = lv_image_create(TdeckDisplayUI.nav_screen);
+  // TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.main_screen);
+  // TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
+  // TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.bat_img = lv_image_create(TdeckDisplayUI.nav_screen);
-  TdeckDisplayUI.weather_conditions = lv_image_create(TdeckDisplayUI.main_screen);
-  TdeckDisplayUI.bat_bar = lv_label_create(TdeckDisplayUI.main_screen);
+  // TdeckDisplayUI.weather_conditions = lv_image_create(TdeckDisplayUI.main_screen);
+  // TdeckDisplayUI.bat_bar = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[0] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[1] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[2] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
 
+  lv_image_set_src(TdeckDisplayUI.main_screen, &wallpaper);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[0], LV_IMAGEBUTTON_STATE_RELEASED, &book, &book, &book);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[1], LV_IMAGEBUTTON_STATE_RELEASED, &setting, &setting, &setting);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[2], LV_IMAGEBUTTON_STATE_RELEASED, &telephone, &telephone, &telephone);
+  lv_obj_add_style(TdeckDisplayUI.icons[0], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[1], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[2], &button_click, LV_STATE_PRESSED);
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
 
-  lv_obj_center(TdeckDisplayUI.connection_status);
+  lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
 
   lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
   lv_obj_center(TdeckDisplayUI.main_screen);
   lv_obj_set_flex_flow(TdeckDisplayUI.main_screen, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_size(TdeckDisplayUI.nav_screen, 320, 30);
   lv_obj_align(TdeckDisplayUI.battery_label, LV_ALIGN_RIGHT_MID, -60, 0);
-  lv_obj_align(TdeckDisplayUI.datetime_label, LV_ALIGN_LEFT_MID, 0, 0);
+  // lv_obj_align(TdeckDisplayUI.datetime_label, LV_ALIGN_LEFT_MID, 0, 0);
 
   lv_obj_set_style_pad_all(TdeckDisplayUI.nav_screen, 0, LV_PART_MAIN);
   lv_obj_set_style_pad_all(TdeckDisplayUI.main_screen, 0, LV_PART_MAIN);
@@ -275,6 +370,13 @@ void drawUI()
   lv_obj_set_style_bg_color(TdeckDisplayUI.nav_screen, lv_color_hex(0x948d8d), LV_PART_MAIN);
 
   lv_obj_set_style_text_color(TdeckDisplayUI.nav_screen, lv_color_hex(0x000000), LV_PART_MAIN);
+  // lv_obj_align(TdeckDisplayUI.icons[0], LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[0], 5, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[1], 5, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[2], 5, LV_PART_MAIN);
+  lv_obj_set_size(TdeckDisplayUI.icons[0], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[1], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[2], 60, 60);
 }
 void wifiTask(void *pvParams)
 {
@@ -336,16 +438,19 @@ void setupLVGL(void *pvParams)
 
   lv_display_set_buffers(display, buf1, NULL, sizeof(buf1), LV_DISPLAY_RENDER_MODE_PARTIAL); /*Initialize the display buffer.*/
   lv_display_set_flush_cb(display, my_disp_flush);
-
+  // static lv_style_t transparent_style;
+  // lv_style_init(&transparent_style);
+  // lv_style_set_bg_opa(&transparent_style, LV_OPA_TRANSP);
+  // lv_style_set_bg_color(&transparent_style, lv_color_black());
   lv_indev_t *indev = lv_indev_create();           /*Create an input device*/
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); /*Touch pad is a pointer-like device*/
   lv_indev_set_read_cb(indev, my_touch_read);
   LV_IMAGE_DECLARE(mouse_pointer);
   lv_obj_t *mouse_cursor = lv_img_create(lv_screen_active());
 
-  // lv_image_set_src(mouse_cursor, &mouse_pointer);
-  // lv_indev_set_cursor(indev, mouse_cursor);
-
+  lv_image_set_src(mouse_cursor, &mouse_pointer);
+  lv_indev_set_cursor(indev, mouse_cursor);
+  // lv_obj_add_style(mouse_cursor, &transparent_style, LV_PART_MAIN);
   drawUI();
   while (1)
   {
@@ -385,6 +490,14 @@ void setup()
   pinMode(BOARD_TBOX_G01, INPUT_PULLUP);
   pinMode(BOARD_TBOX_G04, INPUT_PULLUP);
   pinMode(BOARD_TBOX_G03, INPUT_PULLUP);
+
+  // trackball setup
+  pinMode(TDECK_TRACKBALL_UP, INPUT_PULLUP);
+  pinMode(TDECK_TRACKBALL_DOWN, INPUT_PULLUP);
+  pinMode(TDECK_TRACKBALL_LEFT, INPUT_PULLUP);
+  pinMode(TDECK_TRACKBALL_RIGHT, INPUT_PULLUP);
+  pinMode(TDECK_TRACKBALL_CLICK, INPUT_PULLUP);
+  attachInterrupt(TDECK_TRACKBALL_DOWN, nullptr, FALLING);
 
   pinMode(BOARD_BAT_ADC, INPUT);
   adcAttachPin(BOARD_BAT_ADC);
