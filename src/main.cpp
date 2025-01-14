@@ -21,6 +21,9 @@
 #include <no_wifi.h>
 #include <setting.h>
 #include <telephone.h>
+#include <messages.h>
+#include <calculator.h>
+
 TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
 int direction_count_up = 0;
 int direction_count_down = 0;
@@ -59,12 +62,18 @@ struct
       *low_bat_img,
       *button_text,
       *charging_img,
+      *messages,
+      *calculator,
+      *close_btn,
+      *phone,
+      *setting,
       *icons[10],
       *connection_status,
       *weather_conditions,
       *temperature_label,
       *wind_speed_label,
-      *humidity_label;
+      *humidity_label,
+      *contact;
   char bat[6];
 } static TdeckDisplayUI;
 
@@ -203,6 +212,102 @@ void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
   }
 }
 
+static void close_window_cb(lv_event_t *e)
+{
+
+  lv_obj_clean(lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e)));
+  lv_obj_delete(lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e)));
+}
+static void create_contact_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.contact))
+  {
+    TdeckDisplayUI.contact = lv_obj_create(lv_screen_active());
+
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.contact);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.contact);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label, "Contact Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.contact, 200, 200);
+    lv_obj_center(TdeckDisplayUI.contact);
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+static void create_setting_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.setting))
+  {
+    TdeckDisplayUI.setting = lv_obj_create(lv_screen_active());
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.setting);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.setting);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label, "Settings Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.setting, 200, 200);
+    lv_obj_center(TdeckDisplayUI.setting);
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
+static void create_phone_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.phone))
+  {
+    TdeckDisplayUI.phone = lv_obj_create(lv_screen_active());
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.phone);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.phone);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label, "Phone Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.phone, 200, 200);
+    lv_obj_center(TdeckDisplayUI.phone);
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
+static void create_messages_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.messages))
+  {
+    TdeckDisplayUI.messages = lv_obj_create(lv_screen_active());
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.messages);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.messages);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label, "Messages Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.messages, 200, 200);
+    lv_obj_center(TdeckDisplayUI.messages);
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
+static void create_calculator_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.calculator))
+  {
+    TdeckDisplayUI.calculator = lv_obj_create(lv_screen_active());
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.calculator);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.calculator);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label, "Calculator Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.calculator, 200, 200);
+    lv_obj_center(TdeckDisplayUI.calculator);
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
 void screen_update()
 {
   // make time struct
@@ -264,6 +369,8 @@ void screen_update()
       break;
     }
   }
+  // if (lv_obj_is_valid(TdeckDisplayUI.contact))
+  // lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
 }
 void sensorsTask(void *pvParams)
 {
@@ -327,10 +434,13 @@ void drawUI()
   LV_IMAGE_DECLARE(book);
   LV_IMAGE_DECLARE(setting);
   LV_IMAGE_DECLARE(telephone);
+  LV_IMAGE_DECLARE(messages);
+  LV_IMAGE_DECLARE(calculator);
   static lv_style_t button_click;
   lv_style_init(&button_click);
   lv_style_set_image_recolor_opa(&button_click, LV_OPA_30);
   TdeckDisplayUI.main_screen = lv_image_create(lv_screen_active());
+
   TdeckDisplayUI.nav_screen = lv_obj_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.battery_label = lv_label_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
@@ -344,21 +454,30 @@ void drawUI()
   TdeckDisplayUI.icons[0] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[1] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[2] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[3] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[4] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
 
   lv_image_set_src(TdeckDisplayUI.main_screen, &wallpaper);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[0], LV_IMAGEBUTTON_STATE_RELEASED, &book, &book, &book);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[1], LV_IMAGEBUTTON_STATE_RELEASED, &setting, &setting, &setting);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[2], LV_IMAGEBUTTON_STATE_RELEASED, &telephone, &telephone, &telephone);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[3], LV_IMAGEBUTTON_STATE_RELEASED, &messages, &messages, &messages);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[4], LV_IMAGEBUTTON_STATE_RELEASED, &calculator, &calculator, &calculator);
   lv_obj_add_style(TdeckDisplayUI.icons[0], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[1], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[2], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[3], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[4], &button_click, LV_STATE_PRESSED);
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
 
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
 
   lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
+
   lv_obj_center(TdeckDisplayUI.main_screen);
-  lv_obj_set_flex_flow(TdeckDisplayUI.main_screen, LV_FLEX_FLOW_COLUMN);
+
+  lv_obj_set_style_margin_top(TdeckDisplayUI.main_screen, 40, LV_PART_MAIN);
+  lv_obj_set_flex_flow(TdeckDisplayUI.main_screen, LV_FLEX_FLOW_ROW_WRAP);
   lv_obj_set_size(TdeckDisplayUI.nav_screen, 320, 30);
   lv_obj_align(TdeckDisplayUI.battery_label, LV_ALIGN_RIGHT_MID, -60, 0);
   // lv_obj_align(TdeckDisplayUI.datetime_label, LV_ALIGN_LEFT_MID, 0, 0);
@@ -371,12 +490,22 @@ void drawUI()
 
   lv_obj_set_style_text_color(TdeckDisplayUI.nav_screen, lv_color_hex(0x000000), LV_PART_MAIN);
   // lv_obj_align(TdeckDisplayUI.icons[0], LV_ALIGN_CENTER, 0, 0);
-  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[0], 5, LV_PART_MAIN);
-  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[1], 5, LV_PART_MAIN);
-  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[2], 5, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[0], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[1], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[2], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[3], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[4], 10, LV_PART_MAIN);
   lv_obj_set_size(TdeckDisplayUI.icons[0], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[1], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[2], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[3], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[4], 60, 60);
+
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[0], create_contact_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[1], create_setting_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[2], create_phone_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[3], create_messages_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[4], create_calculator_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
 }
 void wifiTask(void *pvParams)
 {
