@@ -1,3 +1,3 @@
-***REMOVED***
-***REMOVED***
-#define MY_SECRET_PASSWORD  ""
+#define MY_SECRET_API_KEY ""
+#define MY_SECRET_SSID  ""
+#define MY_SECRET_PASSWORD  ""  
