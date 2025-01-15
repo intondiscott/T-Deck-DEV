@@ -23,6 +23,7 @@
 #include <telephone.h>
 #include <messages.h>
 #include <calculator.h>
+#include <calendar.h>
 
 TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
 int direction_count_up = 0;
@@ -47,6 +48,13 @@ struct Weather
 
 Weather *weather = new Weather;
 char weather_buffer[7];
+
+typedef enum
+{
+  LV_MENU_ITEM_BUILDER_VARIANT_1,
+  LV_MENU_ITEM_BUILDER_VARIANT_2
+} lv_menu_builder_variant_t;
+
 struct
 {
   TFT_eSPI tft;
@@ -59,15 +67,17 @@ struct
       *bat_bar,
       *bat_img,
       *wallpaper,
+      *root_page,
       *low_bat_img,
       *button_text,
       *charging_img,
       *messages,
       *calculator,
+      *calendar,
       *close_btn,
       *phone,
       *setting,
-      *icons[10],
+      *icons[20],
       *connection_status,
       *weather_conditions,
       *temperature_label,
@@ -212,6 +222,102 @@ void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
   }
 }
 
+static void switch_handler(lv_event_t *e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t *menu = (lv_obj_t *)lv_event_get_user_data(e);
+  lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+  if (code == LV_EVENT_VALUE_CHANGED)
+  {
+    if (lv_obj_has_state(obj, LV_STATE_CHECKED))
+    {
+      lv_menu_set_page(menu, NULL);
+      lv_menu_set_sidebar_page(menu, TdeckDisplayUI.root_page);
+      lv_obj_send_event(lv_obj_get_child(lv_obj_get_child(lv_menu_get_cur_sidebar_page(menu), 0), 0), LV_EVENT_CLICKED,
+                        NULL);
+    }
+    else
+    {
+      lv_menu_set_sidebar_page(menu, NULL);
+      lv_menu_clear_history(menu); /* Clear history because we will be showing the root page later */
+      lv_menu_set_page(menu, TdeckDisplayUI.root_page);
+    }
+  }
+}
+
+static void back_event_handler(lv_event_t *e)
+{
+  lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+  lv_obj_t *menu = (lv_obj_t *)lv_event_get_user_data(e);
+
+  if (lv_menu_back_button_is_root(menu, obj))
+  {
+    lv_obj_t *mbox1 = lv_msgbox_create(NULL);
+    lv_msgbox_add_title(mbox1, "Hello");
+    lv_msgbox_add_text(mbox1, "Root back btn click.");
+    lv_msgbox_add_close_button(mbox1);
+  }
+}
+
+static lv_obj_t *create_text(lv_obj_t *parent, const char *icon, const char *txt,
+                             lv_menu_builder_variant_t builder_variant)
+{
+  lv_obj_t *obj = lv_menu_cont_create(parent);
+
+  lv_obj_t *img = NULL;
+  lv_obj_t *label = NULL;
+
+  if (icon)
+  {
+    img = lv_image_create(obj);
+    lv_image_set_src(img, icon);
+  }
+
+  if (txt)
+  {
+    label = lv_label_create(obj);
+    lv_label_set_text(label, txt);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_flex_grow(label, 1);
+  }
+
+  if (builder_variant == LV_MENU_ITEM_BUILDER_VARIANT_2 && icon && txt)
+  {
+    lv_obj_add_flag(img, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
+    lv_obj_swap(img, label);
+  }
+
+  return obj;
+}
+
+static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *txt, int32_t min, int32_t max,
+                               int32_t val)
+{
+  lv_obj_t *obj = create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_2);
+
+  lv_obj_t *slider = lv_slider_create(obj);
+  lv_obj_set_flex_grow(slider, 1);
+  lv_slider_set_range(slider, min, max);
+  lv_slider_set_value(slider, val, LV_ANIM_OFF);
+
+  if (icon == NULL)
+  {
+    lv_obj_add_flag(slider, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
+  }
+
+  return obj;
+}
+
+static lv_obj_t *create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk)
+{
+  lv_obj_t *obj = create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1);
+
+  lv_obj_t *sw = lv_switch_create(obj);
+  lv_obj_add_state(sw, chk ? LV_STATE_CHECKED : 0);
+
+  return obj;
+}
+
 static void close_window_cb(lv_event_t *e)
 {
 
@@ -240,14 +346,103 @@ static void create_setting_page(lv_event_t *e)
 {
   if (!lv_obj_is_valid(TdeckDisplayUI.setting))
   {
-    TdeckDisplayUI.setting = lv_obj_create(lv_screen_active());
-    lv_obj_t *label = lv_label_create(TdeckDisplayUI.setting);
+    TdeckDisplayUI.setting = lv_menu_create(lv_screen_active());
+    // lv_obj_t *label = lv_label_create(TdeckDisplayUI.setting);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.setting);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
     lv_label_set_text(label_close, "CLOSE");
-    lv_label_set_text(label, "Settings Page");
+    // lv_label_set_text(label, "Settings Page");
+
+    lv_color_t bg_color = lv_obj_get_style_bg_color(TdeckDisplayUI.setting, 0);
+    if (lv_color_brightness(bg_color) > 127)
+    {
+      lv_obj_set_style_bg_color(TdeckDisplayUI.setting, lv_color_darken(lv_obj_get_style_bg_color(TdeckDisplayUI.setting, 0), 10), 0);
+    }
+    else
+    {
+      lv_obj_set_style_bg_color(TdeckDisplayUI.setting, lv_color_darken(lv_obj_get_style_bg_color(TdeckDisplayUI.setting, 0), 50), 0);
+    }
+    lv_menu_set_mode_root_back_button(TdeckDisplayUI.setting, LV_MENU_ROOT_BACK_BUTTON_ENABLED);
+    lv_obj_add_event_cb(TdeckDisplayUI.setting, back_event_handler, LV_EVENT_CLICKED, TdeckDisplayUI.setting);
+    lv_obj_set_size(TdeckDisplayUI.setting, lv_display_get_horizontal_resolution(NULL), lv_display_get_vertical_resolution(NULL));
+    lv_obj_center(TdeckDisplayUI.setting);
+
+    lv_obj_t *cont;
+    lv_obj_t *section;
+
+    /*Create sub pages*/
+    lv_obj_t *sub_mechanics_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_mechanics_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_mechanics_page);
+    section = lv_menu_section_create(sub_mechanics_page);
+    create_slider(section, LV_SYMBOL_SETTINGS, "Velocity", 0, 150, 120);
+    create_slider(section, LV_SYMBOL_SETTINGS, "Acceleration", 0, 150, 50);
+    create_slider(section, LV_SYMBOL_SETTINGS, "Weight limit", 0, 150, 80);
+
+    lv_obj_t *sub_sound_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_sound_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_sound_page);
+    section = lv_menu_section_create(sub_sound_page);
+    create_switch(section, LV_SYMBOL_AUDIO, "Sound", false);
+
+    lv_obj_t *sub_display_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_display_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_display_page);
+    section = lv_menu_section_create(sub_display_page);
+    create_slider(section, LV_SYMBOL_SETTINGS, "Brightness", 0, 150, 100);
+
+    lv_obj_t *sub_software_info_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_software_info_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    section = lv_menu_section_create(sub_software_info_page);
+    create_text(section, NULL, "Version 1.0", LV_MENU_ITEM_BUILDER_VARIANT_1);
+
+    lv_obj_t *sub_legal_info_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_legal_info_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    section = lv_menu_section_create(sub_legal_info_page);
+    for (uint32_t i = 0; i < 15; i++)
+    {
+      create_text(section, NULL,
+                  "This is a long long long long long long long long long text, if it is long enough it may scroll.",
+                  LV_MENU_ITEM_BUILDER_VARIANT_1);
+    }
+
+    lv_obj_t *sub_about_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_about_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_about_page);
+    section = lv_menu_section_create(sub_about_page);
+    cont = create_text(section, NULL, "Software information", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_software_info_page);
+    cont = create_text(section, NULL, "Legal information", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_legal_info_page);
+
+    lv_obj_t *sub_menu_mode_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_menu_mode_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_menu_mode_page);
+    section = lv_menu_section_create(sub_menu_mode_page);
+    cont = create_switch(section, LV_SYMBOL_AUDIO, "Sidebar enable", true);
+    lv_obj_add_event_cb(lv_obj_get_child(cont, 2), switch_handler, LV_EVENT_VALUE_CHANGED, TdeckDisplayUI.setting);
+
+    /*Create a root page*/
+    TdeckDisplayUI.root_page = lv_menu_page_create(TdeckDisplayUI.setting, "Settings");
+    lv_obj_set_style_pad_hor(TdeckDisplayUI.root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    section = lv_menu_section_create(TdeckDisplayUI.root_page);
+    cont = create_text(section, LV_SYMBOL_SETTINGS, "Mechanics", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_mechanics_page);
+    cont = create_text(section, LV_SYMBOL_AUDIO, "Sound", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_sound_page);
+    cont = create_text(section, LV_SYMBOL_SETTINGS, "Display", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_display_page);
+
+    create_text(TdeckDisplayUI.root_page, NULL, "Others", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    section = lv_menu_section_create(TdeckDisplayUI.root_page);
+    cont = create_text(section, NULL, "About", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_about_page);
+    cont = create_text(section, LV_SYMBOL_SETTINGS, "Menu mode", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_menu_mode_page);
+
+    lv_menu_set_sidebar_page(TdeckDisplayUI.setting, TdeckDisplayUI.root_page);
     lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.setting, 200, 200);
+    lv_obj_set_size(TdeckDisplayUI.setting, 340, 240);
     lv_obj_center(TdeckDisplayUI.setting);
     Serial.println("I am clicked!!!");
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
@@ -308,6 +503,44 @@ static void create_calculator_page(lv_event_t *e)
   }
 }
 
+static void create_calendar_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.calendar))
+  {
+    TdeckDisplayUI.calendar = lv_calendar_create(lv_screen_active());
+
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.calendar);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, "CLOSE");
+    lv_calendar_set_today_date(TdeckDisplayUI.calendar, 2025, 01, 15);
+
+    lv_calendar_set_showed_date(TdeckDisplayUI.calendar, 2025, 01);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.calendar, 300, 250);
+    lv_obj_center(TdeckDisplayUI.calendar);
+    /*Highlight a few days*/
+    static lv_calendar_date_t highlighted_days[3]; /*Only its pointer will be saved so should be static*/
+    highlighted_days[0].year = 2025;
+    highlighted_days[0].month = 01;
+    highlighted_days[0].day = 6;
+
+    highlighted_days[1].year = 2025;
+    highlighted_days[1].month = 01;
+    highlighted_days[1].day = 11;
+
+    highlighted_days[2].year = 2025;
+    highlighted_days[2].month = 01;
+    highlighted_days[2].day = 22;
+
+    lv_calendar_set_highlighted_dates(TdeckDisplayUI.calendar, highlighted_days, 3);
+    lv_calendar_header_dropdown_create(TdeckDisplayUI.calendar);
+    lv_calendar_header_arrow_create(TdeckDisplayUI.calendar);
+
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
 void screen_update()
 {
   // make time struct
@@ -326,8 +559,8 @@ void screen_update()
     lv_image_set_src(TdeckDisplayUI.connection_status, &no_wifi);
   }
   // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
-  //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
-  //  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "Temp: %sF", weather_buffer);
+  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
+  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "%s°F", weather_buffer);
   //  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
   //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
   //  lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
@@ -436,6 +669,7 @@ void drawUI()
   LV_IMAGE_DECLARE(telephone);
   LV_IMAGE_DECLARE(messages);
   LV_IMAGE_DECLARE(calculator);
+  LV_IMAGE_DECLARE(calendar);
   static lv_style_t button_click;
   lv_style_init(&button_click);
   lv_style_set_image_recolor_opa(&button_click, LV_OPA_30);
@@ -445,7 +679,7 @@ void drawUI()
   TdeckDisplayUI.battery_label = lv_label_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.connection_status = lv_image_create(TdeckDisplayUI.nav_screen);
-  // TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
   // TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.bat_img = lv_image_create(TdeckDisplayUI.nav_screen);
@@ -456,6 +690,7 @@ void drawUI()
   TdeckDisplayUI.icons[2] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[3] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[4] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[5] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
 
   lv_image_set_src(TdeckDisplayUI.main_screen, &wallpaper);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[0], LV_IMAGEBUTTON_STATE_RELEASED, &book, &book, &book);
@@ -463,13 +698,15 @@ void drawUI()
   lv_imagebutton_set_src(TdeckDisplayUI.icons[2], LV_IMAGEBUTTON_STATE_RELEASED, &telephone, &telephone, &telephone);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[3], LV_IMAGEBUTTON_STATE_RELEASED, &messages, &messages, &messages);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[4], LV_IMAGEBUTTON_STATE_RELEASED, &calculator, &calculator, &calculator);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[5], LV_IMAGEBUTTON_STATE_RELEASED, &calendar, &calendar, &calendar);
   lv_obj_add_style(TdeckDisplayUI.icons[0], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[1], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[2], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[3], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[4], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[5], &button_click, LV_STATE_PRESSED);
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
-
+  lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
 
   lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
@@ -495,17 +732,20 @@ void drawUI()
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[2], 10, LV_PART_MAIN);
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[3], 10, LV_PART_MAIN);
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[4], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[5], 10, LV_PART_MAIN);
   lv_obj_set_size(TdeckDisplayUI.icons[0], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[1], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[2], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[3], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[4], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[5], 60, 60);
 
   lv_obj_add_event_cb(TdeckDisplayUI.icons[0], create_contact_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[1], create_setting_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[2], create_phone_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[3], create_messages_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[4], create_calculator_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[5], create_calendar_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
 }
 void wifiTask(void *pvParams)
 {
