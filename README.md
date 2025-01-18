@@ -2,8 +2,9 @@
 
 ### Device Specifications for LillyGo T-Deck with `LoRa`
 
-| MCU                                                                            | ESP32-S3FN16R8                       |
+| Name                                                                           | Value                                |
 | ------------------------------------------------------------------------------ | ------------------------------------ |
+| MCU                                                                            | ESP32-S3FN16R8                       |
 | Wireless Connectivity                                                          | 2.4 GHz Wi-Fi & Bluetooth 5 (LE)     |
 | Development                                                                    | Arduino, PlatformIO-IDE, Micropython |
 | Flash                                                                          | 16MB                                 |
