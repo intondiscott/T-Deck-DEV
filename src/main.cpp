@@ -2,6 +2,9 @@
 #include <TFT_eSPI.h>
 #include <lvgl.h>
 #include <WiFi.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
 #include "TouchDrvGT911.hpp"
 #include <ArduinoJson.h>
 #include "utilities.h"
@@ -24,8 +27,13 @@
 #include <messages.h>
 #include <calculator.h>
 #include <calendar.h>
-
+#include <bluetooth.h>
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
 TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 int direction_count_up = 0;
 int direction_count_down = 0;
 int direction_count_left = 0;
@@ -46,6 +54,14 @@ struct Weather
   char icon[5];
 };
 
+struct Settings
+{
+  uint8_t brightness = 10;
+  bool radio_communications = false;
+  bool wifi_communications = false;
+  bool bluetooth_communications = false;
+};
+Settings *setting_values = new Settings;
 Weather *weather = new Weather;
 char weather_buffer[7];
 
@@ -79,6 +95,7 @@ struct
       *setting,
       *icons[20],
       *connection_status,
+      *bluetooth_status,
       *weather_conditions,
       *temperature_label,
       *wind_speed_label,
@@ -290,6 +307,13 @@ static lv_obj_t *create_text(lv_obj_t *parent, const char *icon, const char *txt
   return obj;
 }
 
+static void brightness_control_cb(lv_event_t *e)
+{
+  lv_obj_t *slider = (lv_obj_t *)lv_event_get_target(e);
+  setting_values->brightness = (int)lv_slider_get_value(slider);
+  setBrightness(setting_values->brightness);
+}
+
 static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *txt, int32_t min, int32_t max,
                                int32_t val)
 {
@@ -299,6 +323,7 @@ static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *t
   lv_obj_set_flex_grow(slider, 1);
   lv_slider_set_range(slider, min, max);
   lv_slider_set_value(slider, val, LV_ANIM_OFF);
+  lv_obj_add_event_cb(slider, brightness_control_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
   if (icon == NULL)
   {
@@ -308,13 +333,61 @@ static lv_obj_t *create_slider(lv_obj_t *parent, const char *icon, const char *t
   return obj;
 }
 
+static void switch_control_cb(lv_event_t *e)
+{
+  lv_obj_t *toggle_switch = (lv_obj_t *)lv_event_get_target(e);
+  if (lv_event_get_user_data(e) == "WiFi")
+  {
+    setting_values->wifi_communications = lv_obj_has_state(toggle_switch, LV_STATE_CHECKED);
+    if (!setting_values->wifi_communications)
+      WiFi.disconnect();
+    else
+      WiFi.begin();
+  }
+
+  if (lv_event_get_user_data(e) == "Bluetooth")
+  {
+    setting_values->bluetooth_communications = lv_obj_has_state(toggle_switch, LV_STATE_CHECKED);
+    if (!setting_values->bluetooth_communications)
+    {
+      BLEDevice::deinit();
+    }
+
+    else
+    {
+      BLEDevice::init("T-Deck");
+      BLEServer *pServer = BLEDevice::createServer();
+      BLEService *pService = pServer->createService(SERVICE_UUID);
+      BLECharacteristic *pCharacteristic = pService->createCharacteristic(
+          CHARACTERISTIC_UUID,
+          BLECharacteristic::PROPERTY_READ |
+              BLECharacteristic::PROPERTY_WRITE);
+
+      pService->start();
+
+      BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+      pAdvertising->addServiceUUID(SERVICE_UUID);
+      pAdvertising->setScanResponse(true);
+      pAdvertising->setMinPreferred(0x06); // functions that help with iPhone connections issue
+      pAdvertising->setMinPreferred(0x12);
+      BLEDevice::startAdvertising();
+    }
+  }
+
+  if (lv_event_get_user_data(e) == "Radio")
+  {
+    setting_values->radio_communications = lv_obj_has_state(toggle_switch, LV_STATE_CHECKED);
+  }
+}
+
 static lv_obj_t *create_switch(lv_obj_t *parent, const char *icon, const char *txt, bool chk)
 {
   lv_obj_t *obj = create_text(parent, icon, txt, LV_MENU_ITEM_BUILDER_VARIANT_1);
 
   lv_obj_t *sw = lv_switch_create(obj);
-  lv_obj_add_state(sw, chk ? LV_STATE_CHECKED : 0);
-
+  lv_obj_add_state(sw, chk);
+  String *user_data = (String *)txt;
+  lv_obj_add_event_cb(sw, switch_control_cb, LV_EVENT_VALUE_CHANGED, user_data);
   return obj;
 }
 
@@ -370,26 +443,19 @@ static void create_setting_page(lv_event_t *e)
     lv_obj_t *cont;
     lv_obj_t *section;
 
-    /*Create sub pages*/
-    lv_obj_t *sub_mechanics_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
-    lv_obj_set_style_pad_hor(sub_mechanics_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
-    lv_menu_separator_create(sub_mechanics_page);
-    section = lv_menu_section_create(sub_mechanics_page);
-    create_slider(section, LV_SYMBOL_SETTINGS, "Velocity", 0, 150, 120);
-    create_slider(section, LV_SYMBOL_SETTINGS, "Acceleration", 0, 150, 50);
-    create_slider(section, LV_SYMBOL_SETTINGS, "Weight limit", 0, 150, 80);
-
-    lv_obj_t *sub_sound_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
-    lv_obj_set_style_pad_hor(sub_sound_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
-    lv_menu_separator_create(sub_sound_page);
-    section = lv_menu_section_create(sub_sound_page);
-    create_switch(section, LV_SYMBOL_AUDIO, "Sound", false);
-
     lv_obj_t *sub_display_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
     lv_obj_set_style_pad_hor(sub_display_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
     lv_menu_separator_create(sub_display_page);
     section = lv_menu_section_create(sub_display_page);
-    create_slider(section, LV_SYMBOL_SETTINGS, "Brightness", 0, 150, 100);
+    create_slider(section, LV_SYMBOL_SETTINGS, "Brightness", 3, 16, setting_values->brightness);
+
+    lv_obj_t *sub_communications_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
+    lv_obj_set_style_pad_hor(sub_communications_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
+    lv_menu_separator_create(sub_communications_page);
+    section = lv_menu_section_create(sub_communications_page);
+    create_switch(section, LV_SYMBOL_WIFI, "WiFi", setting_values->wifi_communications);
+    create_switch(section, LV_SYMBOL_BLUETOOTH, "Bluetooth", setting_values->bluetooth_communications);
+    create_switch(section, LV_SYMBOL_GPS, "Radio", setting_values->radio_communications);
 
     lv_obj_t *sub_software_info_page = lv_menu_page_create(TdeckDisplayUI.setting, NULL);
     lv_obj_set_style_pad_hor(sub_software_info_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
@@ -426,13 +492,11 @@ static void create_setting_page(lv_event_t *e)
     TdeckDisplayUI.root_page = lv_menu_page_create(TdeckDisplayUI.setting, "Settings");
     lv_obj_set_style_pad_hor(TdeckDisplayUI.root_page, lv_obj_get_style_pad_left(lv_menu_get_main_header(TdeckDisplayUI.setting), 0), 0);
     section = lv_menu_section_create(TdeckDisplayUI.root_page);
-    cont = create_text(section, LV_SYMBOL_SETTINGS, "Mechanics", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_mechanics_page);
-    cont = create_text(section, LV_SYMBOL_AUDIO, "Sound", LV_MENU_ITEM_BUILDER_VARIANT_1);
-    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_sound_page);
+
     cont = create_text(section, LV_SYMBOL_SETTINGS, "Display", LV_MENU_ITEM_BUILDER_VARIANT_1);
     lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_display_page);
-
+    cont = create_text(section, LV_SYMBOL_WIFI, "Wireless", LV_MENU_ITEM_BUILDER_VARIANT_1);
+    lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_communications_page);
     create_text(TdeckDisplayUI.root_page, NULL, "Others", LV_MENU_ITEM_BUILDER_VARIANT_1);
     section = lv_menu_section_create(TdeckDisplayUI.root_page);
     cont = create_text(section, NULL, "About", LV_MENU_ITEM_BUILDER_VARIANT_1);
@@ -558,6 +622,15 @@ void screen_update()
     LV_IMAGE_DECLARE(no_wifi);
     lv_image_set_src(TdeckDisplayUI.connection_status, &no_wifi);
   }
+  if (setting_values->bluetooth_communications)
+  {
+    LV_IMAGE_DECLARE(bluetooth);
+    lv_image_set_src(TdeckDisplayUI.bluetooth_status, &bluetooth);
+  }
+  else
+  {
+    lv_image_set_src(TdeckDisplayUI.bluetooth_status, NULL);
+  }
   // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
   snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
   lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "%s°F", weather_buffer);
@@ -648,7 +721,8 @@ void sensorsTask(void *pvParams)
       else
       {
         WiFi.mode(WIFI_STA);
-        WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+        if (setting_values->wifi_communications)
+          WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
         Serial.print("Connecting to WiFi ..");
         while (WiFi.status() != WL_CONNECTED)
         {
@@ -679,6 +753,7 @@ void drawUI()
   TdeckDisplayUI.battery_label = lv_label_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.connection_status = lv_image_create(TdeckDisplayUI.nav_screen);
+  TdeckDisplayUI.bluetooth_status = lv_image_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
   // TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
@@ -708,6 +783,7 @@ void drawUI()
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
   lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
+  lv_obj_align(TdeckDisplayUI.bluetooth_status, LV_ALIGN_LEFT_MID, 30, 0);
 
   lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
 
@@ -779,7 +855,8 @@ void wifiTask(void *pvParams)
       {
         Serial.println(httpCode);
         WiFi.mode(WIFI_STA);
-        WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+        if (setting_values->wifi_communications)
+          WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
         Serial.print("Connecting to WiFi ..");
         while (WiFi.status() != WL_CONNECTED)
         {
@@ -905,7 +982,7 @@ void setup()
   // Set mirror xy
   touch.setMirrorXY(false, true);
   pinMode(BOARD_BL_PIN, OUTPUT);
-  setBrightness(16);
+  setBrightness(setting_values->brightness);
 
   xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
   xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
