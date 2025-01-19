@@ -10,30 +10,33 @@
 #include "utilities.h"
 #include <HTTPClient.h>
 #include "credentials.c"
-#include "mouse_pointer.h"
+#include "../assets/images/mouse_pointer.h"
 #include <TDECK_PINS.h>
-#include <critical_low_bat.h>
-#include <charging.h>
-#include <full_battery.h>
-#include <bat_two_bars.h>
-#include <low_bat.h>
-#include <wallpaper.h>
+#include <../assets/images/critical_low_bat.h>
+#include <../assets/images/charging.h>
+#include <../assets/images/full_battery.h>
+#include <../assets/images/bat_two_bars.h>
+#include <../assets/images/low_bat.h>
+#include <../assets/images/wallpaper.h>
 #include <keyboard.h>
-#include <book.h>
-#include <internet.h>
-#include <no_wifi.h>
-#include <setting.h>
-#include <telephone.h>
-#include <messages.h>
-#include <calculator.h>
-#include <calendar.h>
-#include <bluetooth.h>
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
-TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
+#include <../assets/images/book.h>
+#include <../assets/images/internet.h>
+#include <../assets/images/no_wifi.h>
+#include <../assets/images/setting.h>
+#include <../assets/images/telephone.h>
+#include <../assets/images/messages.h>
+#include <../assets/images/calculator.h>
+#include <../assets/images/calendar.h>
+#include <../assets/images/bluetooth.h>
+#include <../assets/images/weather.h>
+
+#define TFT_WIDTH 320
+#define TFT_HEIGHT 240
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+TaskHandle_t lvglTaskHandler, sensorTaskHandler, wifiTaskHandler;
+
 int direction_count_up = 0;
 int direction_count_down = 0;
 int direction_count_left = 0;
@@ -62,7 +65,7 @@ struct Settings
   bool bluetooth_communications = false;
 };
 Settings *setting_values = new Settings;
-Weather *weather = new Weather;
+Weather *weather_vals = new Weather;
 char weather_buffer[7];
 
 typedef enum
@@ -90,6 +93,7 @@ struct
       *messages,
       *calculator,
       *calendar,
+      *weather,
       *close_btn,
       *phone,
       *setting,
@@ -146,7 +150,7 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
   lv_disp_flush_ready(disp);
 }
 
-int16_t x[320 / 2], y[240 / 2];
+int16_t x[TFT_WIDTH / 2], y[TFT_HEIGHT / 2];
 
 /*Read the touchpad*/
 void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
@@ -159,7 +163,9 @@ void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
   LEFT = digitalRead(TDECK_TRACKBALL_LEFT);
   RIGHT = digitalRead(TDECK_TRACKBALL_RIGHT);
   CLICKED = digitalRead(TDECK_TRACKBALL_CLICK);
-
+  char key_press = keyboard_get_key();
+  if (key_press)
+    data->key = key_press;
   if (DOWN == 1)
   {
     direction_count_down = 1;
@@ -394,7 +400,7 @@ static lv_obj_t *create_switch(lv_obj_t *parent, const char *icon, const char *t
 static void close_window_cb(lv_event_t *e)
 {
 
-  lv_obj_clean(lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e)));
+  // lv_obj_clean(lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e)));
   lv_obj_delete(lv_obj_get_parent((lv_obj_t *)lv_event_get_target(e)));
 }
 static void create_contact_page(lv_event_t *e)
@@ -405,10 +411,11 @@ static void create_contact_page(lv_event_t *e)
 
     lv_obj_t *label = lv_label_create(TdeckDisplayUI.contact);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.contact);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
     lv_label_set_text(label, "Contact Page");
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_size(TdeckDisplayUI.contact, 200, 200);
     lv_obj_center(TdeckDisplayUI.contact);
     Serial.println("I am clicked!!!");
@@ -422,8 +429,9 @@ static void create_setting_page(lv_event_t *e)
     TdeckDisplayUI.setting = lv_menu_create(lv_screen_active());
     // lv_obj_t *label = lv_label_create(TdeckDisplayUI.setting);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.setting);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
     // lv_label_set_text(label, "Settings Page");
 
     lv_color_t bg_color = lv_obj_get_style_bg_color(TdeckDisplayUI.setting, 0);
@@ -505,8 +513,8 @@ static void create_setting_page(lv_event_t *e)
     lv_menu_set_load_page_event(TdeckDisplayUI.setting, cont, sub_menu_mode_page);
 
     lv_menu_set_sidebar_page(TdeckDisplayUI.setting, TdeckDisplayUI.root_page);
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.setting, 340, 240);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.setting, TFT_WIDTH, TFT_HEIGHT);
     lv_obj_center(TdeckDisplayUI.setting);
     Serial.println("I am clicked!!!");
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
@@ -520,10 +528,11 @@ static void create_phone_page(lv_event_t *e)
     TdeckDisplayUI.phone = lv_obj_create(lv_screen_active());
     lv_obj_t *label = lv_label_create(TdeckDisplayUI.phone);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.phone);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
     lv_label_set_text(label, "Phone Page");
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_size(TdeckDisplayUI.phone, 200, 200);
     lv_obj_center(TdeckDisplayUI.phone);
     Serial.println("I am clicked!!!");
@@ -538,10 +547,11 @@ static void create_messages_page(lv_event_t *e)
     TdeckDisplayUI.messages = lv_obj_create(lv_screen_active());
     lv_obj_t *label = lv_label_create(TdeckDisplayUI.messages);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.messages);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
     lv_label_set_text(label, "Messages Page");
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_size(TdeckDisplayUI.messages, 200, 200);
     lv_obj_center(TdeckDisplayUI.messages);
     Serial.println("I am clicked!!!");
@@ -549,18 +559,64 @@ static void create_messages_page(lv_event_t *e)
   }
 }
 
+static void textarea_event_handler(lv_event_t *e)
+{
+  lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
+  LV_UNUSED(ta);
+  Serial.println(keyboard_get_key());
+  LV_LOG_USER("Enter was pressed. The current text is: %s", lv_textarea_get_text(ta));
+}
+
+static void btnm_event_handler(lv_event_t *e)
+{
+  lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+  lv_obj_t *ta = (lv_obj_t *)lv_event_get_user_data(e);
+  const char *txt = lv_buttonmatrix_get_button_text(obj, lv_buttonmatrix_get_selected_button(obj));
+
+  if (lv_strcmp(txt, LV_SYMBOL_BACKSPACE) == 0)
+    lv_textarea_delete_char(ta);
+  else if (lv_strcmp(txt, LV_SYMBOL_NEW_LINE) == 0)
+    lv_obj_send_event(ta, LV_EVENT_READY, NULL);
+  else
+    lv_textarea_add_text(ta, txt);
+}
+
 static void create_calculator_page(lv_event_t *e)
 {
   if (!lv_obj_is_valid(TdeckDisplayUI.calculator))
   {
     TdeckDisplayUI.calculator = lv_obj_create(lv_screen_active());
-    lv_obj_t *label = lv_label_create(TdeckDisplayUI.calculator);
+    lv_obj_t *ta = lv_textarea_create(TdeckDisplayUI.calculator);
+
+    lv_textarea_set_one_line(ta, true);
+    lv_obj_align(ta, LV_ALIGN_TOP_MID, -20, -5);
+    lv_obj_set_size(ta, 200, 40);
+    lv_obj_set_style_margin_bottom(ta, 5, LV_PART_MAIN);
+    lv_obj_add_event_cb(ta, textarea_event_handler, LV_EVENT_READY, ta);
+    lv_obj_add_state(ta, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
+
+    static const char *btnm_map[] =
+        {
+            "AC", "+/-", "%", "/", "\n",
+            "7", "8", "9", "*", "\n",
+            "4", "5", "6", "-", "\n",
+            "1", "2", "3", "+", "\n",
+            LV_SYMBOL_BACKSPACE, "0", ".", "=", ""};
+
+    lv_obj_t *btnm = lv_buttonmatrix_create(TdeckDisplayUI.calculator);
+    lv_obj_set_size(btnm, 200, 150);
+    lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, -20, 10);
+    lv_obj_add_event_cb(btnm, btnm_event_handler, LV_EVENT_VALUE_CHANGED, ta);
+    lv_obj_remove_flag(btnm, LV_OBJ_FLAG_CLICK_FOCUSABLE); /*To keep the text area focused on button clicks*/
+    lv_buttonmatrix_set_map(btnm, btnm_map);
+
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.calculator);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
-    lv_label_set_text(label, "Calculator Page");
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.calculator, 200, 200);
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
+
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.calculator, 300, 220);
     lv_obj_center(TdeckDisplayUI.calculator);
     Serial.println("I am clicked!!!");
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
@@ -571,17 +627,20 @@ static void create_calendar_page(lv_event_t *e)
 {
   if (!lv_obj_is_valid(TdeckDisplayUI.calendar))
   {
-    TdeckDisplayUI.calendar = lv_calendar_create(lv_screen_active());
-
+    TdeckDisplayUI.calendar = lv_obj_create(lv_screen_active());
+    lv_obj_t *calendar = lv_calendar_create(TdeckDisplayUI.calendar);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.calendar);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
-    lv_label_set_text(label_close, "CLOSE");
-    lv_calendar_set_today_date(TdeckDisplayUI.calendar, 2025, 01, 15);
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
+    lv_calendar_set_today_date(calendar, 2025, 01, 15);
 
-    lv_calendar_set_showed_date(TdeckDisplayUI.calendar, 2025, 01);
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.calendar, 300, 250);
+    lv_calendar_set_showed_date(calendar, 2025, 01);
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.calendar, TFT_WIDTH, TFT_HEIGHT);
+    lv_obj_set_size(calendar, 220, TFT_HEIGHT-30);
     lv_obj_center(TdeckDisplayUI.calendar);
+    lv_obj_align(calendar,LV_ALIGN_CENTER,-20,0);
     /*Highlight a few days*/
     static lv_calendar_date_t highlighted_days[3]; /*Only its pointer will be saved so should be static*/
     highlighted_days[0].year = 2025;
@@ -596,10 +655,29 @@ static void create_calendar_page(lv_event_t *e)
     highlighted_days[2].month = 01;
     highlighted_days[2].day = 22;
 
-    lv_calendar_set_highlighted_dates(TdeckDisplayUI.calendar, highlighted_days, 3);
-    lv_calendar_header_dropdown_create(TdeckDisplayUI.calendar);
-    lv_calendar_header_arrow_create(TdeckDisplayUI.calendar);
+    lv_calendar_set_highlighted_dates(calendar, highlighted_days, 3);
+    lv_calendar_header_dropdown_create(calendar);
+    lv_calendar_header_arrow_create(calendar);
 
+    Serial.println("I am clicked!!!");
+    lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
+  }
+}
+
+static void create_weather_page(lv_event_t *e)
+{
+  if (!lv_obj_is_valid(TdeckDisplayUI.weather))
+  {
+    TdeckDisplayUI.weather = lv_obj_create(lv_screen_active());
+    lv_obj_t *label = lv_label_create(TdeckDisplayUI.weather);
+    TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.weather);
+    lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
+    lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
+    lv_label_set_text(label, "Weather Page");
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_set_size(TdeckDisplayUI.weather, 200, 200);
+    lv_obj_center(TdeckDisplayUI.weather);
     Serial.println("I am clicked!!!");
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
   }
@@ -632,7 +710,7 @@ void screen_update()
     lv_image_set_src(TdeckDisplayUI.bluetooth_status, NULL);
   }
   // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
-  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather->temperature - 273.15) * 9 / 5 + 32);
+  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather_vals->temperature - 273.15) * 9 / 5 + 32);
   lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "%s°F", weather_buffer);
   //  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
   //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
@@ -744,6 +822,7 @@ void drawUI()
   LV_IMAGE_DECLARE(messages);
   LV_IMAGE_DECLARE(calculator);
   LV_IMAGE_DECLARE(calendar);
+  LV_IMAGE_DECLARE(weather);
   static lv_style_t button_click;
   lv_style_init(&button_click);
   lv_style_set_image_recolor_opa(&button_click, LV_OPA_30);
@@ -766,6 +845,7 @@ void drawUI()
   TdeckDisplayUI.icons[3] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[4] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
   TdeckDisplayUI.icons[5] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
+  TdeckDisplayUI.icons[6] = lv_imagebutton_create(TdeckDisplayUI.main_screen);
 
   lv_image_set_src(TdeckDisplayUI.main_screen, &wallpaper);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[0], LV_IMAGEBUTTON_STATE_RELEASED, &book, &book, &book);
@@ -774,24 +854,26 @@ void drawUI()
   lv_imagebutton_set_src(TdeckDisplayUI.icons[3], LV_IMAGEBUTTON_STATE_RELEASED, &messages, &messages, &messages);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[4], LV_IMAGEBUTTON_STATE_RELEASED, &calculator, &calculator, &calculator);
   lv_imagebutton_set_src(TdeckDisplayUI.icons[5], LV_IMAGEBUTTON_STATE_RELEASED, &calendar, &calendar, &calendar);
+  lv_imagebutton_set_src(TdeckDisplayUI.icons[6], LV_IMAGEBUTTON_STATE_RELEASED, &weather, &weather, &weather);
   lv_obj_add_style(TdeckDisplayUI.icons[0], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[1], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[2], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[3], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[4], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[5], &button_click, LV_STATE_PRESSED);
+  lv_obj_add_style(TdeckDisplayUI.icons[6], &button_click, LV_STATE_PRESSED);
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
   lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
   lv_obj_align(TdeckDisplayUI.bluetooth_status, LV_ALIGN_LEFT_MID, 30, 0);
 
-  lv_obj_set_size(TdeckDisplayUI.main_screen, 320, 240);
+  lv_obj_set_size(TdeckDisplayUI.main_screen, TFT_WIDTH, TFT_HEIGHT);
 
   lv_obj_center(TdeckDisplayUI.main_screen);
 
   lv_obj_set_style_margin_top(TdeckDisplayUI.main_screen, 40, LV_PART_MAIN);
   lv_obj_set_flex_flow(TdeckDisplayUI.main_screen, LV_FLEX_FLOW_ROW_WRAP);
-  lv_obj_set_size(TdeckDisplayUI.nav_screen, 320, 30);
+  lv_obj_set_size(TdeckDisplayUI.nav_screen, TFT_WIDTH, 30);
   lv_obj_align(TdeckDisplayUI.battery_label, LV_ALIGN_RIGHT_MID, -60, 0);
   // lv_obj_align(TdeckDisplayUI.datetime_label, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -809,12 +891,14 @@ void drawUI()
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[3], 10, LV_PART_MAIN);
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[4], 10, LV_PART_MAIN);
   lv_obj_set_style_margin_all(TdeckDisplayUI.icons[5], 10, LV_PART_MAIN);
+  lv_obj_set_style_margin_all(TdeckDisplayUI.icons[6], 10, LV_PART_MAIN);
   lv_obj_set_size(TdeckDisplayUI.icons[0], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[1], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[2], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[3], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[4], 60, 60);
   lv_obj_set_size(TdeckDisplayUI.icons[5], 60, 60);
+  lv_obj_set_size(TdeckDisplayUI.icons[6], 60, 60);
 
   lv_obj_add_event_cb(TdeckDisplayUI.icons[0], create_contact_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[1], create_setting_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
@@ -822,6 +906,7 @@ void drawUI()
   lv_obj_add_event_cb(TdeckDisplayUI.icons[3], create_messages_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[4], create_calculator_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
   lv_obj_add_event_cb(TdeckDisplayUI.icons[5], create_calendar_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
+  lv_obj_add_event_cb(TdeckDisplayUI.icons[6], create_weather_page, LV_EVENT_CLICKED, TdeckDisplayUI.main_screen);
 }
 void wifiTask(void *pvParams)
 {
@@ -845,9 +930,9 @@ void wifiTask(void *pvParams)
 
         JsonDocument doc;
         deserializeJson(doc, payload);
-        weather->temperature = doc["main"]["temp"];
-        weather->humidity = doc["main"]["humidity"];
-        weather->wind_speed = doc["wind"]["speed"];
+        weather_vals->temperature = doc["main"]["temp"];
+        weather_vals->humidity = doc["main"]["humidity"];
+        weather_vals->wind_speed = doc["wind"]["speed"];
 
         Serial.println(payload);
       }
@@ -876,11 +961,11 @@ void setupLVGL(void *pvParams)
 
   lv_init();
 
-  static lv_color_t buf[320 * 10];
-  lv_display_t *display = lv_display_create(320, 240);
+  static lv_color_t buf[TFT_WIDTH * 10];
+  lv_display_t *display = lv_display_create(TFT_WIDTH, TFT_HEIGHT);
 /*Declare a buffer for 1/10 screen size*/
 #define BYTE_PER_PIXEL (LV_COLOR_FORMAT_GET_SIZE(LV_COLOR_FORMAT_RGB565)) /*will be 2 for RGB565 */
-  static uint8_t buf1[320 * 240 / 10 * BYTE_PER_PIXEL];
+  static uint8_t buf1[TFT_WIDTH * TFT_HEIGHT / 10 * BYTE_PER_PIXEL];
 
   lv_display_set_buffers(display, buf1, NULL, sizeof(buf1), LV_DISPLAY_RENDER_MODE_PARTIAL); /*Initialize the display buffer.*/
   lv_display_set_flush_cb(display, my_disp_flush);
@@ -896,7 +981,7 @@ void setupLVGL(void *pvParams)
 
   lv_image_set_src(mouse_cursor, &mouse_pointer);
   lv_indev_set_cursor(indev, mouse_cursor);
-  // lv_obj_add_style(mouse_cursor, &transparent_style, LV_PART_MAIN);
+
   drawUI();
   while (1)
   {
@@ -974,7 +1059,7 @@ void setup()
   Serial.println("Init GT911 Sensor success!");
 
   // Set touch max xy
-  touch.setMaxCoordinates(320, 240);
+  touch.setMaxCoordinates(TFT_WIDTH, TFT_HEIGHT);
 
   // Set swap xy
   touch.setSwapXY(true);
