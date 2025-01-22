@@ -164,7 +164,7 @@ void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
   RIGHT = digitalRead(TDECK_TRACKBALL_RIGHT);
   CLICKED = digitalRead(TDECK_TRACKBALL_CLICK);
   char key_press = keyboard_get_key();
-  if (key_press)
+  
     data->key = key_press;
   if (DOWN == 1)
   {
@@ -588,6 +588,10 @@ static void create_calculator_page(lv_event_t *e)
     TdeckDisplayUI.calculator = lv_obj_create(lv_screen_active());
     lv_obj_t *ta = lv_textarea_create(TdeckDisplayUI.calculator);
 
+    lv_group_t *keyboard_input_group = lv_group_create();
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_group(indev, keyboard_input_group);
+    lv_group_add_obj(keyboard_input_group, ta);
     lv_textarea_set_one_line(ta, true);
     lv_obj_align(ta, LV_ALIGN_TOP_MID, -20, -5);
     lv_obj_set_size(ta, 200, 40);
@@ -606,6 +610,7 @@ static void create_calculator_page(lv_event_t *e)
     lv_obj_t *btnm = lv_buttonmatrix_create(TdeckDisplayUI.calculator);
     lv_obj_set_size(btnm, 200, 150);
     lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, -20, 10);
+    char key = keyboard_get_key();
     lv_obj_add_event_cb(btnm, btnm_event_handler, LV_EVENT_VALUE_CHANGED, ta);
     lv_obj_remove_flag(btnm, LV_OBJ_FLAG_CLICK_FOCUSABLE); /*To keep the text area focused on button clicks*/
     lv_buttonmatrix_set_map(btnm, btnm_map);
@@ -638,9 +643,9 @@ static void create_calendar_page(lv_event_t *e)
     lv_calendar_set_showed_date(calendar, 2025, 01);
     lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_size(TdeckDisplayUI.calendar, TFT_WIDTH, TFT_HEIGHT);
-    lv_obj_set_size(calendar, 220, TFT_HEIGHT-30);
+    lv_obj_set_size(calendar, 220, TFT_HEIGHT - 30);
     lv_obj_center(TdeckDisplayUI.calendar);
-    lv_obj_align(calendar,LV_ALIGN_CENTER,-20,0);
+    lv_obj_align(calendar, LV_ALIGN_CENTER, -20, 0);
     /*Highlight a few days*/
     static lv_calendar_date_t highlighted_days[3]; /*Only its pointer will be saved so should be static*/
     highlighted_days[0].year = 2025;
@@ -669,12 +674,19 @@ static void create_weather_page(lv_event_t *e)
   if (!lv_obj_is_valid(TdeckDisplayUI.weather))
   {
     TdeckDisplayUI.weather = lv_obj_create(lv_screen_active());
-    lv_obj_t *label = lv_label_create(TdeckDisplayUI.weather);
+    lv_obj_set_flex_flow(TdeckDisplayUI.weather, LV_FLEX_FLOW_COLUMN);
+    TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.weather);
+    TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.weather);
+    TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.weather);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.weather);
     lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
     lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
-    lv_label_set_text(label, "Weather Page");
+    snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather_vals->temperature - 273.15) * 9 / 5 + 32);
+    lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "%s°F", weather_buffer);
+    snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather_vals->wind_speed);
+    lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
+    lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather_vals->humidity);
     lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_set_size(TdeckDisplayUI.weather, 200, 200);
     lv_obj_center(TdeckDisplayUI.weather);
@@ -685,7 +697,6 @@ static void create_weather_page(lv_event_t *e)
 
 void screen_update()
 {
-  // make time struct
 
   uint32_t battery_percentage = (analogRead(BOARD_BAT_ADC) * 4.6) * 8 / 1024;
 
@@ -710,11 +721,7 @@ void screen_update()
     lv_image_set_src(TdeckDisplayUI.bluetooth_status, NULL);
   }
   // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
-  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", (weather_vals->temperature - 273.15) * 9 / 5 + 32);
-  lv_label_set_text_fmt(TdeckDisplayUI.temperature_label, "%s°F", weather_buffer);
-  //  lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather->humidity);
-  //  snprintf(weather_buffer, sizeof(weather_buffer), "%3.2f", weather->wind_speed);
-  //  lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
+
   lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
   // lv_label_set_text(TdeckDisplayUI.bat_bar, weather->icon);
   //  M5.Rtc.GetTime(&TimeStruct);
@@ -815,6 +822,7 @@ void sensorsTask(void *pvParams)
 }
 void drawUI()
 {
+
   LV_IMAGE_DECLARE(wallpaper);
   LV_IMAGE_DECLARE(book);
   LV_IMAGE_DECLARE(setting);
@@ -833,9 +841,7 @@ void drawUI()
   // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.connection_status = lv_image_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.bluetooth_status = lv_image_create(TdeckDisplayUI.nav_screen);
-  TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.nav_screen);
-  // TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.main_screen);
-  // TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.main_screen);
+
   TdeckDisplayUI.bat_img = lv_image_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.weather_conditions = lv_image_create(TdeckDisplayUI.main_screen);
   // TdeckDisplayUI.bat_bar = lv_label_create(TdeckDisplayUI.main_screen);
@@ -863,7 +869,7 @@ void drawUI()
   lv_obj_add_style(TdeckDisplayUI.icons[5], &button_click, LV_STATE_PRESSED);
   lv_obj_add_style(TdeckDisplayUI.icons[6], &button_click, LV_STATE_PRESSED);
   lv_obj_align(TdeckDisplayUI.bat_img, LV_ALIGN_RIGHT_MID, -10, 0);
-  lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
+  // lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
   lv_obj_align(TdeckDisplayUI.bluetooth_status, LV_ALIGN_LEFT_MID, 30, 0);
 
@@ -1039,7 +1045,7 @@ void setup()
   TdeckDisplayUI.tft.begin();
   TdeckDisplayUI.tft.setRotation(1);
   TdeckDisplayUI.tft.fillScreen(TFT_BLACK);
-
+  
   // Set touch int input
   pinMode(BOARD_TOUCH_INT, INPUT);
   delay(20);
@@ -1052,6 +1058,7 @@ void setup()
     while (1)
     {
       Serial.println("Failed to find GT911 - check your wiring!");
+
       delay(1000);
     }
   }
@@ -1069,6 +1076,8 @@ void setup()
   pinMode(BOARD_BL_PIN, OUTPUT);
   setBrightness(setting_values->brightness);
 
+  delay(2000);
+keyboard_init();
   xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
   xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
   xTaskCreatePinnedToCore(sensorsTask, "sensorsTask", 1024 * 6, NULL, 1, &sensorTaskHandler, 1);
