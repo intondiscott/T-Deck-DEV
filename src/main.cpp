@@ -152,6 +152,19 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
 
 int16_t x[TFT_WIDTH / 2], y[TFT_HEIGHT / 2];
 
+void my_keypad_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
+{
+  data->state = LV_INDEV_STATE_RELEASED;
+  char key_press = keyboard_get_key();
+  data->key = key_press;
+
+  if (key_press)
+  {
+    data->state = LV_INDEV_STATE_PRESSED;
+    data->btn_id = key_press;
+  }
+}
+
 /*Read the touchpad*/
 void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
 {
@@ -163,9 +176,9 @@ void my_touch_read(lv_indev_t *indev_driver, lv_indev_data_t *data)
   LEFT = digitalRead(TDECK_TRACKBALL_LEFT);
   RIGHT = digitalRead(TDECK_TRACKBALL_RIGHT);
   CLICKED = digitalRead(TDECK_TRACKBALL_CLICK);
-  char key_press = keyboard_get_key();
-  
-    data->key = key_press;
+
+  data->state = LV_INDEV_STATE_REL;
+
   if (DOWN == 1)
   {
     direction_count_down = 1;
@@ -540,21 +553,61 @@ static void create_phone_page(lv_event_t *e)
   }
 }
 
+static void ta_event_cb(lv_event_t *e)
+{
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
+  lv_obj_t *kb = (lv_obj_t *)lv_event_get_user_data(e);
+  if (code == LV_EVENT_FOCUSED)
+  {
+    lv_keyboard_set_textarea(kb, ta);
+    lv_textarea_add_char(ta, keyboard_get_key());
+    lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (code == LV_EVENT_DEFOCUSED)
+  {
+    lv_keyboard_set_textarea(kb, NULL);
+    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 static void create_messages_page(lv_event_t *e)
 {
   if (!lv_obj_is_valid(TdeckDisplayUI.messages))
   {
     TdeckDisplayUI.messages = lv_obj_create(lv_screen_active());
-    lv_obj_t *label = lv_label_create(TdeckDisplayUI.messages);
+
+    lv_obj_set_size(TdeckDisplayUI.messages, TFT_WIDTH, TFT_HEIGHT);
+    lv_obj_center(TdeckDisplayUI.messages);
+
+    /*Create a keyboard to use it with an of the text areas*/
+
+    /*Create a text area. The keyboard will write here*/
+    lv_obj_t *ta1;
+    ta1 = lv_textarea_create(TdeckDisplayUI.messages);
+    lv_indev_t *indev = lv_indev_create(); /*Create an input device*/
+    lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(indev, my_keypad_read);
+    lv_group_t *keyboard_input_group = lv_group_create();
+
+    lv_indev_set_group(indev, keyboard_input_group);
+    lv_group_add_obj(keyboard_input_group, ta1);
+    lv_obj_t *kb = lv_keyboard_create(TdeckDisplayUI.messages);
+
+    lv_obj_align(ta1, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_add_event_cb(ta1, ta_event_cb, LV_EVENT_ALL, kb);
+    lv_textarea_set_placeholder_text(ta1, "Hello");
+    lv_obj_set_size(ta1, 250, 80);
+
+    lv_keyboard_set_textarea(kb, ta1);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.messages);
     lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
     lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
-    lv_label_set_text(label, "Messages Page");
-    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.messages, 200, 200);
-    lv_obj_center(TdeckDisplayUI.messages);
-    Serial.println("I am clicked!!!");
+
+    lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, -5);
+
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
   }
 }
@@ -578,7 +631,9 @@ static void btnm_event_handler(lv_event_t *e)
   else if (lv_strcmp(txt, LV_SYMBOL_NEW_LINE) == 0)
     lv_obj_send_event(ta, LV_EVENT_READY, NULL);
   else
+  {
     lv_textarea_add_text(ta, txt);
+    }
 }
 
 static void create_calculator_page(lv_event_t *e)
@@ -596,6 +651,7 @@ static void create_calculator_page(lv_event_t *e)
     lv_obj_align(ta, LV_ALIGN_TOP_MID, -20, -5);
     lv_obj_set_size(ta, 200, 40);
     lv_obj_set_style_margin_bottom(ta, 5, LV_PART_MAIN);
+
     lv_obj_add_event_cb(ta, textarea_event_handler, LV_EVENT_READY, ta);
     lv_obj_add_state(ta, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
 
@@ -610,8 +666,9 @@ static void create_calculator_page(lv_event_t *e)
     lv_obj_t *btnm = lv_buttonmatrix_create(TdeckDisplayUI.calculator);
     lv_obj_set_size(btnm, 200, 150);
     lv_obj_align(btnm, LV_ALIGN_BOTTOM_MID, -20, 10);
-    char key = keyboard_get_key();
+
     lv_obj_add_event_cb(btnm, btnm_event_handler, LV_EVENT_VALUE_CHANGED, ta);
+
     lv_obj_remove_flag(btnm, LV_OBJ_FLAG_CLICK_FOCUSABLE); /*To keep the text area focused on button clicks*/
     lv_buttonmatrix_set_map(btnm, btnm_map);
 
@@ -674,10 +731,12 @@ static void create_weather_page(lv_event_t *e)
   if (!lv_obj_is_valid(TdeckDisplayUI.weather))
   {
     TdeckDisplayUI.weather = lv_obj_create(lv_screen_active());
-    lv_obj_set_flex_flow(TdeckDisplayUI.weather, LV_FLEX_FLOW_COLUMN);
-    TdeckDisplayUI.wind_speed_label = lv_label_create(TdeckDisplayUI.weather);
-    TdeckDisplayUI.humidity_label = lv_label_create(TdeckDisplayUI.weather);
-    TdeckDisplayUI.temperature_label = lv_label_create(TdeckDisplayUI.weather);
+    lv_obj_t *weather_win = lv_obj_create(TdeckDisplayUI.weather);
+    lv_obj_set_size(weather_win, 200, 200);
+    lv_obj_set_flex_flow(weather_win, LV_FLEX_FLOW_COLUMN);
+    TdeckDisplayUI.wind_speed_label = lv_label_create(weather_win);
+    TdeckDisplayUI.humidity_label = lv_label_create(weather_win);
+    TdeckDisplayUI.temperature_label = lv_label_create(weather_win);
     TdeckDisplayUI.close_btn = lv_button_create(TdeckDisplayUI.weather);
     lv_obj_set_style_bg_color(TdeckDisplayUI.close_btn, lv_color_hex(0xfc0303), LV_PART_MAIN);
     lv_obj_t *label_close = lv_label_create(TdeckDisplayUI.close_btn);
@@ -688,7 +747,7 @@ static void create_weather_page(lv_event_t *e)
     lv_label_set_text_fmt(TdeckDisplayUI.wind_speed_label, "Wind Speed: %s MPH", weather_buffer);
     lv_label_set_text_fmt(TdeckDisplayUI.humidity_label, "Hum: %d%%", weather_vals->humidity);
     lv_obj_align(TdeckDisplayUI.close_btn, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_set_size(TdeckDisplayUI.weather, 200, 200);
+    lv_obj_set_size(TdeckDisplayUI.weather, 300, 250);
     lv_obj_center(TdeckDisplayUI.weather);
     Serial.println("I am clicked!!!");
     lv_obj_add_event_cb(TdeckDisplayUI.close_btn, close_window_cb, LV_EVENT_CLICKED, NULL);
@@ -1045,7 +1104,7 @@ void setup()
   TdeckDisplayUI.tft.begin();
   TdeckDisplayUI.tft.setRotation(1);
   TdeckDisplayUI.tft.fillScreen(TFT_BLACK);
-  
+
   // Set touch int input
   pinMode(BOARD_TOUCH_INT, INPUT);
   delay(20);
@@ -1077,7 +1136,7 @@ void setup()
   setBrightness(setting_values->brightness);
 
   delay(2000);
-keyboard_init();
+  keyboard_init();
   xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
   xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
   xTaskCreatePinnedToCore(sensorsTask, "sensorsTask", 1024 * 6, NULL, 1, &sensorTaskHandler, 1);
