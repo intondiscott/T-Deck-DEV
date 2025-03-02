@@ -136,17 +136,12 @@ void setBrightness(uint8_t value)
   level = value;
 }
 
-// !!! LVGL !!!
-// !!! LVGL !!!
-// !!! LVGL !!!
 void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p)
 {
   uint32_t w = (area->x2 - area->x1 + 1);
   uint32_t h = (area->y2 - area->y1 + 1);
   lv_draw_sw_rgb565_swap(color_p, w * h);
   TdeckDisplayUI.tft.pushImage(area->x1, area->y1, w, h, (uint16_t *)color_p);
-  // lv_draw_sw_rgb565_swap(color_p, w * h);
-
   lv_disp_flush_ready(disp);
 }
 
@@ -633,7 +628,7 @@ static void btnm_event_handler(lv_event_t *e)
   else
   {
     lv_textarea_add_text(ta, txt);
-    }
+  }
 }
 
 static void create_calculator_page(lv_event_t *e)
@@ -828,45 +823,44 @@ void sensorsTask(void *pvParams)
   while (1)
   {
 
-    while (1)
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      HTTPClient http2, http3;
+      int httpCode2, httpCode3;
+      float x, y, z;
+
+      String battery = "\"pin1\":\"" + (String)TdeckDisplayUI.bat + "\",";
+      String charging = "\"pin2\":\"" + (String)analogRead(BOARD_BAT_ADC)+ "\",";
+       String chip_temp = "\"pin3\":\"84\"";
+
+      http2.begin("http://192.168.0.114:8080/api/v1/devices/1");
+      http3.begin("http://192.168.0.223:8080/api/v1/devices/1");
+      http2.addHeader("Content-type", "application/json");
+      http3.addHeader("Content-type", "application/json");
+      http2.PUT(
+          "{" +
+
+          battery +
+          charging +
+           chip_temp +
+          "}");
+      http3.PUT(
+          "{" +
+
+          battery +
+          // charging +
+          // chip_temp +
+          "}");
+      http2.end();
+      http3.end();
+    }
+    else
     {
 
-      if (WiFi.status() == WL_CONNECTED)
-      {
-        HTTPClient http2, http3;
-        float x, y, z;
-        String update = "\"device_status\":\"ONLINE\",";
-        String battery = "\"pin1\":\"" + (String)TdeckDisplayUI.bat + "\",";
-        // String charging = "\"pin2\":\"" + (String)M5.Axp.GetAPSVoltage() + "\",";
-        // String chip_temp = "\"pin3\":\"" + (String)M5.Axp.GetTempInAXP192() + "\"";
-
-        http2.begin("http://192.168.0.114:8080/api/v1/devices/2");
-        http3.begin("http://192.168.0.223:8080/api/v1/devices/2");
-        http2.addHeader("Content-type", "application/json");
-        http3.addHeader("Content-type", "application/json");
-        http2.PUT(
-            "{" +
-            update +
-            battery +
-            // charging +
-            // chip_temp +
-            "}");
-        http3.PUT(
-            "{" +
-            update +
-            battery +
-            // charging +
-            // chip_temp +
-            "}");
-
-        http2.end();
-        http3.end();
-      }
-      else
+      if (setting_values->wifi_communications)
       {
         WiFi.mode(WIFI_STA);
-        if (setting_values->wifi_communications)
-          WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+        WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
         Serial.print("Connecting to WiFi ..");
         while (WiFi.status() != WL_CONNECTED)
         {
@@ -875,10 +869,11 @@ void sensorsTask(void *pvParams)
         }
         Serial.println(WiFi.localIP());
       }
-      vTaskDelay(2);
     }
+    vTaskDelay(2);
   }
 }
+
 void drawUI()
 {
 
@@ -1004,18 +999,21 @@ void wifiTask(void *pvParams)
       else
       {
         Serial.println(httpCode);
-        WiFi.mode(WIFI_STA);
+
         if (setting_values->wifi_communications)
-          WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
-        Serial.print("Connecting to WiFi ..");
-        while (WiFi.status() != WL_CONNECTED)
         {
-          Serial.print('.');
-          delay(1000);
+          WiFi.mode(WIFI_STA);
+          WiFi.begin(MY_SECRET_SSID, MY_SECRET_PASSWORD);
+          Serial.print("Connecting to WiFi ..");
+          while (WiFi.status() != WL_CONNECTED)
+          {
+            Serial.print('.');
+            delay(1000);
+          }
+          Serial.println(WiFi.localIP());
         }
-        Serial.println(WiFi.localIP());
+        http1.end();
       }
-      http1.end();
     }
     vTaskDelay(10000);
   }
@@ -1104,6 +1102,9 @@ void setup()
   TdeckDisplayUI.tft.begin();
   TdeckDisplayUI.tft.setRotation(1);
   TdeckDisplayUI.tft.fillScreen(TFT_BLACK);
+  TdeckDisplayUI.tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  TdeckDisplayUI.tft.setTextSize(2);
+  TdeckDisplayUI.tft.setCursor(0, TFT_HEIGHT / 2);
 
   // Set touch int input
   pinMode(BOARD_TOUCH_INT, INPUT);
@@ -1134,8 +1135,12 @@ void setup()
   touch.setMirrorXY(false, true);
   pinMode(BOARD_BL_PIN, OUTPUT);
   setBrightness(setting_values->brightness);
-
-  delay(2000);
+  TdeckDisplayUI.tft.print("Loading");
+  for (int i = 0; i < 5; i++)
+  {
+    TdeckDisplayUI.tft.print(".");
+    delay(500);
+  }
   keyboard_init();
   xTaskCreatePinnedToCore(setupLVGL, "setupLVGL", 1024 * 10, NULL, 3, &lvglTaskHandler, 0);
   xTaskCreatePinnedToCore(wifiTask, "wifiTask", 1024 * 6, NULL, 2, &wifiTaskHandler, 1);
