@@ -8,6 +8,7 @@
 #include "TouchDrvGT911.hpp"
 #include <ArduinoJson.h>
 #include "utilities.h"
+#include <RadioLib.h>
 #include <HTTPClient.h>
 #include "credentials.c"
 #include "../assets/images/mouse_pointer.h"
@@ -18,6 +19,7 @@
 #include <../assets/images/bat_two_bars.h>
 #include <../assets/images/low_bat.h>
 #include <../assets/images/wallpaper.h>
+#include <../assets/images/antenna.h>
 #include <keyboard.h>
 #include <../assets/images/book.h>
 #include <../assets/images/internet.h>
@@ -42,6 +44,8 @@ int direction_count_down = 0;
 int direction_count_left = 0;
 int direction_count_right = 0;
 int pointer_speed = 5;
+
+char kb_buf[256];
 
 int UP, DOWN, LEFT, RIGHT, CLICKED;
 TouchDrvGT911 touch;
@@ -100,6 +104,7 @@ struct
       *icons[20],
       *connection_status,
       *bluetooth_status,
+      *lora_status,
       *weather_conditions,
       *temperature_label,
       *wind_speed_label,
@@ -107,6 +112,20 @@ struct
       *contact;
   char bat[6];
 } static TdeckDisplayUI;
+
+// Set up LoRa comms
+//  include the library
+#include <RadioLib.h>
+
+// SX1262 has the following connections:
+#define SCK 40
+#define MISO 38
+#define MOSI 41
+#define CS 39
+#define DIO1 45
+#define RESET 17
+#define BUSY 13
+SX1262 radio = new Module(RADIO_CS_PIN, DIO1, RESET, BUSY);
 
 void setBrightness(uint8_t value)
 {
@@ -391,6 +410,27 @@ static void switch_control_cb(lv_event_t *e)
   if (lv_event_get_user_data(e) == "Radio")
   {
     setting_values->radio_communications = lv_obj_has_state(toggle_switch, LV_STATE_CHECKED);
+    if (setting_values->radio_communications)
+    {
+      // Initialize the radio module
+      Serial.print(F("[SX1262] Initializing ... "));
+      int state = radio.begin();
+      if (state == RADIOLIB_ERR_NONE)
+      {
+        Serial.println(F("success!"));
+      }
+      else
+      {
+        Serial.print(F("failed, code "));
+        Serial.println(state);
+      }
+    }
+    else
+    {
+      // Deinitialize the radio module
+      Serial.println(F("[SX1262] Deinitializing ... "));
+      radio.sleep();
+    }
   }
 }
 
@@ -557,7 +597,16 @@ static void ta_event_cb(lv_event_t *e)
   {
     lv_keyboard_set_textarea(kb, ta);
     lv_textarea_add_char(ta, keyboard_get_key());
+
     lv_obj_remove_flag(kb, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (code == LV_EVENT_READY)
+  {
+    // lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
+    if (setting_values->radio_communications)
+      radio.startTransmit(lv_textarea_get_text(ta));
+
+    lv_textarea_set_text(ta, "");
   }
 
   if (code == LV_EVENT_DEFOCUSED)
@@ -592,7 +641,7 @@ static void create_messages_page(lv_event_t *e)
 
     lv_obj_align(ta1, LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_add_event_cb(ta1, ta_event_cb, LV_EVENT_ALL, kb);
-    lv_textarea_set_placeholder_text(ta1, "Hello");
+    lv_textarea_set_placeholder_text(ta1, "Put Message here...");
     lv_obj_set_size(ta1, 250, 80);
 
     lv_keyboard_set_textarea(kb, ta1);
@@ -774,6 +823,15 @@ void screen_update()
   {
     lv_image_set_src(TdeckDisplayUI.bluetooth_status, NULL);
   }
+  if (setting_values->radio_communications)
+  {
+    LV_IMAGE_DECLARE(antenna);
+    lv_image_set_src(TdeckDisplayUI.lora_status, &antenna);
+  }
+  else
+  {
+    lv_image_set_src(TdeckDisplayUI.lora_status, NULL);
+  }
   // lv_label_set_text(TdeckDisplayUI.connection_status, WiFi.status() == WL_CONNECTED ? "Connected..." : "Not Connected...");
 
   lv_label_set_text_fmt(TdeckDisplayUI.battery_label, "%s%%", TdeckDisplayUI.bat);
@@ -830,8 +888,8 @@ void sensorsTask(void *pvParams)
       float x, y, z;
 
       String battery = "\"pin1\":\"" + (String)TdeckDisplayUI.bat + "\",";
-      String charging = "\"pin2\":\"" + (String)analogRead(BOARD_BAT_ADC)+ "\",";
-       String chip_temp = "\"pin3\":\"84\"";
+      String charging = "\"pin2\":\"" + (String)analogRead(BOARD_BAT_ADC) + "\",";
+      String chip_temp = "\"pin3\":\"84\"";
 
       http2.begin("http://192.168.0.114:8080/api/v1/devices/1");
       http3.begin("http://192.168.0.223:8080/api/v1/devices/1");
@@ -842,7 +900,7 @@ void sensorsTask(void *pvParams)
 
           battery +
           charging +
-           chip_temp +
+          chip_temp +
           "}");
       http3.PUT(
           "{" +
@@ -895,7 +953,7 @@ void drawUI()
   // TdeckDisplayUI.datetime_label = lv_label_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.connection_status = lv_image_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.bluetooth_status = lv_image_create(TdeckDisplayUI.nav_screen);
-
+  TdeckDisplayUI.lora_status = lv_image_create(TdeckDisplayUI.nav_screen);
   TdeckDisplayUI.bat_img = lv_image_create(TdeckDisplayUI.nav_screen);
   // TdeckDisplayUI.weather_conditions = lv_image_create(TdeckDisplayUI.main_screen);
   // TdeckDisplayUI.bat_bar = lv_label_create(TdeckDisplayUI.main_screen);
@@ -926,6 +984,7 @@ void drawUI()
   // lv_obj_align(TdeckDisplayUI.temperature_label, LV_ALIGN_CENTER, 0, 0);
   lv_obj_align(TdeckDisplayUI.connection_status, LV_ALIGN_LEFT_MID, 10, 0);
   lv_obj_align(TdeckDisplayUI.bluetooth_status, LV_ALIGN_LEFT_MID, 30, 0);
+  lv_obj_align(TdeckDisplayUI.lora_status, LV_ALIGN_LEFT_MID, 50, 0);
 
   lv_obj_set_size(TdeckDisplayUI.main_screen, TFT_WIDTH, TFT_HEIGHT);
 
