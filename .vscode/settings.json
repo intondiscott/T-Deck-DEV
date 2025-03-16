@@ -10,6 +10,7 @@
     "string_view": "cpp",
     "initializer_list": "cpp",
     "regex": "cpp",
-    "*.tpp": "cpp"
+    "*.tpp": "cpp",
+    "new": "cpp"
   }
 }

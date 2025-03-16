@@ -6,8 +6,8 @@
 #include "TDECK_PINS.h"
 #include <Wire.h>
 #include <Arduino.h>
-
-void keyboard_init()
+#pragma once
+static void keyboard_init()
 {
   // Check keyboard
   Wire.requestFrom(TDECK_KEYBOARD_ADDR, 1);
@@ -17,7 +17,7 @@ void keyboard_init()
   }
 }
 
-char keyboard_get_key()
+static char keyboard_get_key()
 {
   // Read key value from esp32c3
 
